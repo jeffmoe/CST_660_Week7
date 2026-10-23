@@ -1,0 +1,111 @@
+# Upstream event contract (ADR-003). Every source lands here every 15 minutes;
+# all downstream contracts are built from this table.
+name: raw.subscription_events
+version: 1
+description: >-
+  Append-only landing table for clickstream, subscription lifecycle, billing and
+  messaging events. Micro-batch landing every 15 minutes (ADR-003).
+owner: Data Engineering lead
+layer: raw
+platform: warehouse
+produced_by: "collector:managed_event_loader"
+grain: one row per event_id
+primary_key: [event_id]
+materialization: append
+schedule: every 15 minutes
+retention_rule: R-06
+columns:
+  - name: event_id
+    type: string
+    nullable: false
+    unique: true
+    description: Producer-generated UUID; idempotency key for merges (ADR-003).
+    classification: C1
+  - name: event_type
+    type: string
+    nullable: false
+    description: Event name from the controlled vocabulary.
+    classification: C1
+    accepted_values: [page_view, product_view, add_to_cart, checkout_completed,
+      subscription_created, subscription_paused, subscription_skipped,
+      subscription_resumed, subscription_cancelled, cancel_page_view,
+      payment_succeeded, payment_failed, email_sent, email_opened, email_clicked,
+      sms_sent, sms_clicked, unsubscribed]
+  - name: source
+    type: string
+    nullable: false
+    description: Producing system.
+    classification: C1
+    accepted_values: [web, app, billing, subscription_platform, esp, sms]
+  - name: event_time
+    type: timestamp
+    nullable: false
+    description: When the event happened (UTC), set by the producer.
+    classification: C1
+  - name: ingested_at
+    type: timestamp
+    nullable: false
+    description: When the event landed in the warehouse (UTC); late = ingested_at - event_time.
+    classification: C1
+  - name: subscriber_id
+    type: string
+    nullable: true
+    description: Surrogate subscriber key; null for anonymous web/app traffic.
+    classification: C2
+  - name: anonymous_id
+    type: string
+    nullable: true
+    pii: true
+    pii_element: PII-SUB-06
+    description: Cookie/device identifier (hashed in staging).
+    classification: C3
+  - name: ip_address
+    type: string
+    nullable: true
+    pii: true
+    pii_element: PII-SUB-06
+    description: Client IP; dropped in staging (R-06 end action).
+    classification: C3
+  - name: user_agent
+    type: string
+    nullable: true
+    pii: true
+    pii_element: PII-SUB-06
+    description: Client user agent.
+    classification: C3
+  - name: properties
+    type: json
+    nullable: true
+    description: Event-specific payload; free text is DLP-scanned before landing (ABAC-07).
+    classification: C2
+governance:
+  - id: GR-EVT-01
+    rule: schema
+    on_fail: block_publish
+    description: Batch columns and types match this contract; drift stops the batch.
+  - id: GR-EVT-02
+    rule: not_null
+    on_fail: quarantine_rows
+    description: Events missing event_id, type, source or timestamps are quarantined, not dropped.
+  - id: GR-EVT-03
+    rule: unique
+    columns: [event_id]
+    on_fail: quarantine_rows
+    description: Duplicate event_ids (webhook redelivery) are quarantined; the merge keeps the first.
+  - id: GR-EVT-04
+    rule: pii_scan
+    columns: [properties]
+    patterns: [email, us_phone, card_number, us_ssn]
+    incident_patterns: [card_number, us_ssn]
+    on_fail: quarantine_rows
+    description: Personal data in the free-form payload is quarantined; card numbers or SSNs open an incident.
+  - id: GR-EVT-05
+    rule: freshness
+    timestamp_column: ingested_at
+    max_age_minutes: 30
+    on_fail: warn
+    escalate_after_consecutive: 4
+    escalate_to: block_publish
+    description: >-
+      Landing runs every 15 minutes; two missed cycles warn, four consecutive
+      misses (~1 h) block downstream hourly marts.

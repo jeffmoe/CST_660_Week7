@@ -1,0 +1,97 @@
+# Consumer register for the Subscription Health data product.
+# Each consumer's contract: what it reads, under which roles and purposes, the
+# SLA it can rely on, what happens on breach, and how changes reach it.
+# Validated against ADR-001..003, security/data_matrix.yaml and the assumptions
+# register by:  python scripts/build_contracts.py
+version: "0.1.0"
+last_reviewed: "2026-10-23"
+consumers:
+  - id: CON-RET
+    name: Retention team
+    owner: Retention team lead
+    description: >-
+      Works the daily at-risk list at the morning stand-up and monitors churn and
+      promo-day cancellations intraday.
+    datasets:
+      - marts.retention_subscription_health_daily
+      - marts.retention_events_hourly
+    roles: [retention_analyst, retention_agent]
+    purposes: [P5]
+    max_classification: C2
+    sla:
+      daily_deadline_local: "07:00"
+      max_lag_minutes: 90
+      availability: "Daily mart by 07:00 local (A-OPS-02); hourly aggregate typically ~1 h behind, at most 90 min (ADR-003)."
+    on_breach: >-
+      Dashboards keep the last good partition with a stale banner showing its
+      as-of time; the data-product owner is alerted at the first miss and the
+      on-call engineer is paged after two consecutive daily misses.
+    guarantees:
+      - One row per subscriber per day; no duplicates (GR-RET-03).
+      - No direct identifiers; subscriber_id is a surrogate key (C2).
+      - Subscribers who objected to analytics or requested deletion are excluded (GR-RET-05).
+      - Intraday aggregates suppress cells under 10 subscribers (ABAC-08).
+    change_policy: >-
+      Additive columns ship without notice. Removing or renaming a column, or
+      adding a subscription_status level, is breaking: 30 days' notice and a new
+      contract version.
+    breaking_change_approvers: [Retention team lead, Lead Analytics Engineer]
+
+  - id: CON-ML
+    name: ML team (churn-risk model)
+    owner: ML Engineering lead
+    description: >-
+      Trains the churn-risk model on historical feature snapshots and scores all
+      active subscribers nightly.
+    datasets:
+      - features.churn_features
+    roles: [ml_engineer]
+    purposes: [P5]
+    max_classification: C2
+    sla:
+      daily_deadline_local: "07:00"
+      availability: "Nightly partition by 07:00 local (A-OPS-02); open-format snapshot available for training reads (ADR-001)."
+    on_breach: >-
+      Scoring reuses the previous day's scores and ML on-call is alerted. Two
+      consecutive misses block scoring and page; the retention mart then shows
+      scores with their as-of date.
+    guarantees:
+      - Point-in-time correct; no feature uses data after feature_date.
+      - Stable columns keep name, type and meaning within a major version.
+      - Late events within the 3-day window (A-OPS-03) are reprocessed; older partitions are immutable.
+      - Objecting or deletion-pending subscribers never enter features or labels (GR-FEA-05).
+    change_policy: >-
+      Changes to any stable column create a new version (churn_features v2)
+      published side by side with v1 for at least 60 days. Agent-authored changes
+      to stable fields need the ML Engineering lead's named approval (ADR-004 Zone 2).
+    breaking_change_approvers: [ML Engineering lead]
+
+  - id: CON-RAG
+    name: Retention-support assistant (RAG)
+    owner: ML Engineering lead
+    description: >-
+      Retrieves redacted transcript chunks to draft answers for retention staff
+      (ADR-004 Zone 1). Never customer-facing; never takes account actions.
+    datasets:
+      - rag.transcript_chunks
+    roles: [svc_retention_assistant]
+    purposes: [P8]
+    max_classification: C3
+    required_gates: [SEC-G3, SEC-G6]
+    sla:
+      daily_deadline_local: "07:00"
+      availability: "Chunks for tickets closed by end of the previous day, by 07:00 local; staleness of a few days is tolerated."
+    on_breach: >-
+      The assistant keeps serving the existing index; after three consecutive
+      misses it labels answers as possibly outdated. A PII or consent failure
+      withholds the affected chunks from the index; it never degrades to
+      indexing unchecked text.
+    guarantees:
+      - Every chunk passed PII scanning after redaction (GR-RAG-03).
+      - Only subscribers in scope for AI processing, and only after SEC-G3 clears (GR-RAG-05).
+      - Deleted subscribers' chunks leave the table and the index within the deletion SLA (R-11, R-12).
+      - Chunks are at most 512 tokens (A-TRN-04).
+    change_policy: >-
+      Changes to chunking or redaction bump redaction_version and trigger a full
+      re-index reviewed at SEC-G6.
+    breaking_change_approvers: [ML Engineering lead, Privacy / Legal]

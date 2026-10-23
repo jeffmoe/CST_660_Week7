@@ -2,3 +2,6 @@ numpy>=2.0
 pandas>=2.2
 PyYAML>=6.0
 tabulate>=0.9
+pydantic>=2.6
+jsonschema>=4.20
+pytest>=8.0

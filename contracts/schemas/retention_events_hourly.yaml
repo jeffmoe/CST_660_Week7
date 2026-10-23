@@ -1,0 +1,69 @@
+name: marts.retention_events_hourly
+version: 1
+description: >-
+  Hourly aggregate of lifecycle events by state for intraday promo-day monitoring
+  (ADR-003 hourly incremental marts). Aggregate only; small cells suppressed.
+owner: Lead Analytics Engineer
+layer: marts
+platform: warehouse
+produced_by: "dbt:retention_events_hourly"
+grain: one row per event_hour, event_type, ship_state
+primary_key: [event_hour, event_type, ship_state]
+materialization: incremental
+incremental_lookback_days: 3
+schedule: hourly
+retention_rule: R-07
+columns:
+  - name: event_hour
+    type: timestamp
+    nullable: false
+    description: Hour bucket of event_time (UTC).
+    classification: C1
+  - name: event_type
+    type: string
+    nullable: false
+    description: Lifecycle event type.
+    classification: C1
+    accepted_values: [subscription_created, subscription_paused, subscription_skipped,
+      subscription_resumed, subscription_cancelled, cancel_page_view, payment_failed]
+  - name: ship_state
+    type: string
+    nullable: false
+    description: US state, or "suppressed" when the cell has fewer than 10 subscribers (ABAC-08).
+    classification: C1
+  - name: subscriber_count
+    type: integer
+    nullable: false
+    min_value: 10
+    description: Distinct subscribers; cells below 10 are rolled into "suppressed".
+    classification: C1
+  - name: event_count
+    type: integer
+    nullable: false
+    min_value: 0
+    description: Events in the hour.
+    classification: C1
+  - name: _loaded_at
+    type: timestamp
+    nullable: false
+    description: Time the hour was last (re)published.
+    classification: C1
+governance:
+  - id: GR-HRL-01
+    rule: schema
+    on_fail: block_publish
+    description: Column drift blocks publish.
+  - id: GR-HRL-02
+    rule: not_null
+    on_fail: block_publish
+    description: All columns are required.
+  - id: GR-HRL-03
+    rule: freshness
+    timestamp_column: _loaded_at
+    max_age_minutes: 90
+    on_fail: serve_stale_and_alert
+    escalate_after_consecutive: 3
+    escalate_to: warn
+    description: >-
+      15-minute landing + hourly build gives ~1 h typical lag (ADR-003); over 90
+      minutes shows a stale banner. Intraday is best-effort, so it never blocks.

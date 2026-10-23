@@ -1,0 +1,130 @@
+name: marts.retention_subscription_health_daily
+version: 1
+description: >-
+  One row per active or recently cancelled subscriber per day: subscription state,
+  engagement and churn-risk band. Powers the retention team's at-risk list and
+  churn monitoring dashboards. Pseudonymous; no direct identifiers.
+owner: Lead Analytics Engineer
+layer: marts
+platform: warehouse
+produced_by: "dbt:retention_subscription_health_daily"
+grain: one row per subscriber_id per as_of_date
+primary_key: [subscriber_id, as_of_date]
+materialization: incremental
+incremental_lookback_days: 3
+schedule: nightly, complete before 07:00 local
+retention_rule: R-01
+columns:
+  - name: subscriber_id
+    type: string
+    nullable: false
+    description: Surrogate subscriber key.
+    classification: C2
+  - name: as_of_date
+    type: date
+    nullable: false
+    description: Snapshot date (local).
+    classification: C1
+  - name: plan_interval
+    type: string
+    nullable: false
+    description: Delivery cadence.
+    classification: C2
+    accepted_values: [monthly, bimonthly, quarterly]
+  - name: subscription_status
+    type: string
+    nullable: false
+    stable: true
+    description: Status at end of as_of_date. New levels are a breaking change.
+    classification: C2
+    accepted_values: [active, paused, past_due, cancelled]
+  - name: tenure_days
+    type: integer
+    nullable: false
+    min_value: 0
+    description: Days since first subscription start.
+    classification: C2
+  - name: days_since_last_order
+    type: integer
+    nullable: true
+    min_value: 0
+    description: Null if no order yet.
+    classification: C2
+  - name: skips_90d
+    type: integer
+    nullable: false
+    min_value: 0
+    description: Skipped deliveries in trailing 90 days.
+    classification: C2
+  - name: failed_payments_30d
+    type: integer
+    nullable: false
+    min_value: 0
+    description: Failed payment attempts in trailing 30 days.
+    classification: C2
+  - name: cancel_page_views_14d
+    type: integer
+    nullable: false
+    min_value: 0
+    description: Visits to the cancellation flow in trailing 14 days.
+    classification: C2
+  - name: churn_risk_score
+    type: number
+    nullable: true
+    min_value: 0
+    max_value: 1
+    description: Latest score from the churn model; null until first scored.
+    classification: C2
+  - name: churn_risk_band
+    type: string
+    nullable: true
+    description: Banded score used by the retention playbook.
+    classification: C2
+    accepted_values: [low, medium, high]
+  - name: ship_state
+    type: string
+    nullable: true
+    description: US state of the shipping address (generalized from PII-SUB-02).
+    classification: C2
+  - name: _loaded_at
+    type: timestamp
+    nullable: false
+    description: Time the partition was published.
+    classification: C1
+governance:
+  - id: GR-RET-01
+    rule: schema
+    on_fail: block_publish
+    description: Column drift blocks publish; dashboards keep yesterday's partition.
+  - id: GR-RET-02
+    rule: not_null
+    on_fail: block_publish
+    description: Nulls in key or status columns block publish (a wrong at-risk list is worse than a late one).
+  - id: GR-RET-03
+    rule: unique
+    columns: [subscriber_id, as_of_date]
+    on_fail: block_publish
+    description: Duplicate subscriber-days double-count churn; block.
+  - id: GR-RET-04
+    rule: freshness
+    timestamp_column: _loaded_at
+    partition_column: as_of_date
+    deadline_local: "07:00"
+    on_fail: serve_stale_and_alert
+    escalate_after_consecutive: 2
+    escalate_to: block_publish
+    description: >-
+      Yesterday's partition must exist by 07:00 (A-OPS-02). Miss: dashboards show
+      yesterday with a stale banner and the owner is alerted; two consecutive
+      misses page the on-call engineer.
+  - id: GR-RET-05
+    rule: consent_scope
+    purpose: P5
+    require: {analytics_objection: false, deletion_pending: false}
+    on_fail: quarantine_rows
+    max_quarantine_share: 0.01
+    escalate_to: block_publish
+    description: >-
+      Subscribers who objected to analytics or have a pending deletion are removed
+      before publish (ABAC-02, ABAC-06). Over 1% removed implies a consent-feed
+      fault, so publish blocks.

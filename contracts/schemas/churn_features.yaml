@@ -1,0 +1,167 @@
+name: features.churn_features
+version: 1
+description: >-
+  Point-in-time churn-risk feature set handed to the ML team. One row per
+  subscriber per feature_date, computed only from data available at the end of
+  feature_date. Published nightly and exported in an open table format (ADR-001).
+owner: Lead Analytics Engineer
+layer: features
+platform: warehouse
+produced_by: "dbt:churn_features_v1"
+grain: one row per subscriber_id per feature_date
+primary_key: [subscriber_id, feature_date]
+materialization: incremental
+incremental_lookback_days: 3
+schedule: nightly, complete before 07:00 local
+retention_rule: R-15
+open_format_export: true
+columns:
+  - name: subscriber_id
+    type: string
+    nullable: false
+    stable: true
+    description: Surrogate subscriber key.
+    classification: C2
+  - name: feature_date
+    type: date
+    nullable: false
+    stable: true
+    description: As-of date; no feature uses data after this date.
+    classification: C1
+  - name: tenure_days
+    type: integer
+    nullable: false
+    stable: true
+    min_value: 0
+    description: Days since first subscription start.
+    classification: C2
+  - name: plan_interval
+    type: string
+    nullable: false
+    stable: true
+    description: Delivery cadence.
+    classification: C2
+    accepted_values: [monthly, bimonthly, quarterly]
+  - name: subscription_status
+    type: string
+    nullable: false
+    stable: true
+    description: Status at end of feature_date; a new level breaks training/serving parity.
+    classification: C2
+    accepted_values: [active, paused, past_due]
+  - name: orders_90d
+    type: integer
+    nullable: false
+    stable: true
+    min_value: 0
+    description: Orders shipped in trailing 90 days.
+    classification: C2
+  - name: skips_90d
+    type: integer
+    nullable: false
+    stable: true
+    min_value: 0
+    description: Skipped deliveries in trailing 90 days.
+    classification: C2
+  - name: pauses_180d
+    type: integer
+    nullable: false
+    stable: true
+    min_value: 0
+    description: Pauses in trailing 180 days.
+    classification: C2
+  - name: failed_payments_30d
+    type: integer
+    nullable: false
+    stable: true
+    min_value: 0
+    description: Failed payment attempts in trailing 30 days.
+    classification: C2
+  - name: sessions_30d
+    type: integer
+    nullable: false
+    stable: true
+    min_value: 0
+    description: Logged-in web/app sessions in trailing 30 days.
+    classification: C2
+  - name: cancel_page_views_14d
+    type: integer
+    nullable: false
+    stable: true
+    min_value: 0
+    description: Visits to the cancellation flow in trailing 14 days.
+    classification: C2
+  - name: email_open_rate_30d
+    type: number
+    nullable: true
+    stable: true
+    min_value: 0
+    max_value: 1
+    description: Opens / sends in trailing 30 days; null if no sends.
+    classification: C2
+  - name: support_contacts_90d
+    type: integer
+    nullable: false
+    stable: true
+    min_value: 0
+    description: Support tickets opened in trailing 90 days.
+    classification: C2
+  - name: days_since_last_order
+    type: integer
+    nullable: true
+    stable: true
+    min_value: 0
+    description: Null if no order yet.
+    classification: C2
+  - name: label_churned_30d
+    type: boolean
+    nullable: true
+    description: Training label; cancelled within 30 days after feature_date. Null until 30 days have passed.
+    classification: C2
+  - name: feature_version
+    type: string
+    nullable: false
+    stable: true
+    description: Semantic version of the feature definitions.
+    classification: C1
+  - name: _loaded_at
+    type: timestamp
+    nullable: false
+    description: Time the partition was published.
+    classification: C1
+governance:
+  - id: GR-FEA-01
+    rule: schema
+    on_fail: block_publish
+    description: Any change to stable columns breaks training/serving parity; block.
+  - id: GR-FEA-02
+    rule: not_null
+    on_fail: block_publish
+    description: Nulls in non-nullable features block publish; the model scores on yesterday's features.
+  - id: GR-FEA-03
+    rule: unique
+    columns: [subscriber_id, feature_date]
+    on_fail: block_publish
+    description: Duplicate rows corrupt training sets; block.
+  - id: GR-FEA-04
+    rule: freshness
+    timestamp_column: _loaded_at
+    partition_column: feature_date
+    deadline_local: "07:00"
+    on_fail: serve_stale_and_alert
+    escalate_after_consecutive: 2
+    escalate_to: block_publish
+    description: >-
+      Yesterday's features must exist by 07:00 (A-OPS-02). Miss: scoring reuses
+      yesterday's scores and ML on-call is alerted; two consecutive misses block
+      scoring and page.
+  - id: GR-FEA-05
+    rule: consent_scope
+    purpose: P5
+    require: {analytics_objection: false, deletion_pending: false}
+    on_fail: quarantine_rows
+    max_quarantine_share: 0.01
+    escalate_to: block_publish
+    description: >-
+      Objecting or deletion-pending subscribers never enter features or training
+      sets (ABAC-02, ABAC-06); over 1% removed blocks publish.

@@ -1,0 +1,114 @@
+name: rag.transcript_chunks
+version: 1
+description: >-
+  Redacted, chunked support transcripts for the retention-support assistant's
+  retrieval corpus. Only chunks that pass PII scanning and consent scope are
+  published; the vector index is built from this table and nothing else.
+owner: ML Engineering lead
+layer: rag
+platform: warehouse
+produced_by: "dbt:rag_transcript_chunks"
+grain: one row per chunk_id
+primary_key: [chunk_id]
+materialization: incremental
+incremental_lookback_days: 3
+schedule: nightly, complete before 07:00 local
+retention_rule: R-11
+columns:
+  - name: chunk_id
+    type: string
+    nullable: false
+    unique: true
+    description: Deterministic hash of ticket_id, chunk_index and redaction_version.
+    classification: C1
+  - name: ticket_id
+    type: string
+    nullable: false
+    description: Helpdesk ticket key.
+    classification: C2
+  - name: subscriber_id
+    type: string
+    nullable: false
+    description: Surrogate subscriber key (for consent and deletion; never shown to the model).
+    classification: C2
+  - name: chunk_index
+    type: integer
+    nullable: false
+    min_value: 0
+    description: Position of the chunk within the ticket.
+    classification: C1
+  - name: chunk_text_redacted
+    type: string
+    nullable: false
+    pii: true
+    pii_element: PII-TRN-02
+    description: Redacted transcript text (residual-risk Restricted data).
+    classification: C3
+  - name: token_count
+    type: integer
+    nullable: false
+    min_value: 1
+    max_value: 512
+    description: Tokens in the chunk; capped by A-TRN-04 chunk size.
+    classification: C1
+  - name: topic_tags
+    type: array<string>
+    nullable: true
+    description: Support topic labels (billing, shipping, cancellation, product).
+    classification: C1
+  - name: ticket_closed_at
+    type: timestamp
+    nullable: false
+    description: Retention clock start for R-11.
+    classification: C1
+  - name: redaction_version
+    type: string
+    nullable: false
+    description: Version of the redaction pipeline that produced the text.
+    classification: C1
+  - name: _loaded_at
+    type: timestamp
+    nullable: false
+    description: Time the chunk was published.
+    classification: C1
+governance:
+  - id: GR-RAG-01
+    rule: schema
+    on_fail: block_publish
+    description: Column drift blocks publish; the existing index keeps serving.
+  - id: GR-RAG-02
+    rule: not_null
+    on_fail: quarantine_rows
+    description: Incomplete chunks are withheld from the index.
+  - id: GR-RAG-03
+    rule: pii_scan
+    columns: [chunk_text_redacted]
+    patterns: [email, us_phone, card_number, us_ssn]
+    incident_patterns: [card_number, us_ssn]
+    on_fail: quarantine_rows
+    description: >-
+      Residual emails or phone numbers after redaction withhold the chunk; a card
+      number or SSN is Prohibited data (R-04) and opens a security incident.
+  - id: GR-RAG-04
+    rule: freshness
+    timestamp_column: _loaded_at
+    partition_column: ticket_closed_at
+    deadline_local: "07:00"
+    on_fail: warn
+    escalate_after_consecutive: 3
+    escalate_to: serve_stale_and_alert
+    description: >-
+      Yesterday's closed tickets should be indexed by 07:00. A stale corpus is
+      acceptable for a few days: warn, then flag answers as possibly outdated.
+  - id: GR-RAG-05
+    rule: consent_scope
+    purpose: P8
+    require: {ai_processing: true, deletion_pending: false}
+    required_gates: [SEC-G3]
+    on_fail: quarantine_rows
+    max_quarantine_share: 0.05
+    escalate_to: block_publish
+    description: >-
+      Chunks are published only for subscribers whose data may be processed by
+      the model provider, and only after SEC-G3 (ADR-004 G0) has cleared; until
+      then every row fails and publish blocks.
