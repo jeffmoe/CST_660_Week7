@@ -1,0 +1,47 @@
+# Demonstration cases for the contract validator (scripts/validate_contract.py).
+#
+# Each batch = a clean baseline of the dataset (every seeded bad record removed)
+# plus the seeded records named in `inject` (edge-case IDs from the synthetic
+# manifest). `expected` is written from the contracts, before running anything:
+# which rule must fail, with which failure behavior, and the resulting exit code.
+#   exit 0 PASS · exit 1 FAIL (rows quarantined) · exit 2 FAIL (BLOCKED)
+# quarantined: "seeded" = exactly the injected seeded rows are quarantined.
+
+cases:
+  # ---------------------------------------------------------- clean baselines
+  - {id: V-00a, title: "Clean raw events (last 24 h of landings)", dataset: raw.subscription_events, inject: [],
+     expected: {verdict: PASS, exit_code: 0, failed_rules: {}, quarantined: none}}
+  - {id: V-00b, title: "Clean retention mart", dataset: marts.retention_subscription_health_daily, inject: [],
+     expected: {verdict: PASS, exit_code: 0, failed_rules: {}, quarantined: none}}
+  - {id: V-00c, title: "Clean churn features", dataset: features.churn_features, inject: [],
+     expected: {verdict: PASS, exit_code: 0, failed_rules: {}, quarantined: none}}
+  - {id: V-00d, title: "Clean transcript chunks, SEC-G3 cleared", dataset: rag.transcript_chunks, inject: [], gates: [SEC-G3],
+     expected: {verdict: PASS, exit_code: 0, failed_rules: {}, quarantined: none}}
+
+  # ------------------------------------------------------- seeded violations
+  - {id: V-01, title: "EC-01 consent-scope violation: analytics objection in features", dataset: features.churn_features, inject: [EC-01],
+     expected: {verdict: FAIL, exit_code: 1, failed_rules: {GR-FEA-05: quarantine_rows}, quarantined: seeded}}
+  - {id: V-02, title: "EC-04 deletion-pending subscriber in the retention mart", dataset: marts.retention_subscription_health_daily, inject: [EC-04],
+     expected: {verdict: FAIL, exit_code: 1, failed_rules: {GR-RET-05: quarantine_rows}, quarantined: seeded}}
+  - {id: V-03, title: "EC-13 subscriber with no consent record (fail closed)", dataset: features.churn_features, inject: [EC-13],
+     expected: {verdict: FAIL, exit_code: 1, failed_rules: {GR-FEA-05: quarantine_rows}, quarantined: seeded}}
+  - {id: V-04, title: "EC-02 PII in transcript: email missed by redaction", dataset: rag.transcript_chunks, inject: [EC-02], gates: [SEC-G3],
+     expected: {verdict: FAIL, exit_code: 1, failed_rules: {GR-RAG-03: quarantine_rows}, quarantined: seeded}}
+  - {id: V-05, title: "EC-03 card number in transcript (Prohibited data)", dataset: rag.transcript_chunks, inject: [EC-03], gates: [SEC-G3],
+     expected: {verdict: FAIL (BLOCKED), exit_code: 2, failed_rules: {GR-RAG-03: security_incident}, quarantined: seeded}}
+  - {id: V-06, title: "EC-10 transcript of a subscriber without AI-processing consent", dataset: rag.transcript_chunks, inject: [EC-10], gates: [SEC-G3],
+     expected: {verdict: FAIL, exit_code: 1, failed_rules: {GR-RAG-05: quarantine_rows}, quarantined: seeded}}
+  - {id: V-07, title: "EC-05 duplicate webhook delivery", dataset: raw.subscription_events, inject: [EC-05],
+     expected: {verdict: FAIL, exit_code: 1, failed_rules: {GR-EVT-03: quarantine_rows}, quarantined: seeded_duplicate}}
+  - {id: V-08, title: "EC-08 null event_type", dataset: raw.subscription_events, inject: [EC-08],
+     expected: {verdict: FAIL, exit_code: 1, failed_rules: {GR-EVT-02: quarantine_rows}, quarantined: seeded}}
+  - {id: V-09, title: "EC-09 email in event payload", dataset: raw.subscription_events, inject: [EC-09],
+     expected: {verdict: FAIL, exit_code: 1, failed_rules: {GR-EVT-04: quarantine_rows}, quarantined: seeded}}
+
+  # ------------------------------------------------------------ policy cases
+  - {id: V-10, title: "Clean transcript chunks but SEC-G3 not cleared", dataset: rag.transcript_chunks, inject: [], gates: [],
+     expected: {verdict: FAIL (BLOCKED), exit_code: 2, failed_rules: {GR-RAG-05: block_publish}, quarantined: none}}
+  - {id: V-11, title: "EC-01 with --fail-on blocking (quarantine accepted)", dataset: features.churn_features, inject: [EC-01], fail_on: blocking,
+     expected: {verdict: PASS, exit_code: 0, failed_rules: {GR-FEA-05: quarantine_rows}, quarantined: seeded}}
+  - {id: V-12, title: "Generated features file as-is (all seeded consent cases)", dataset: features.churn_features, inject: [EC-01, EC-04, EC-13],
+     expected: {verdict: FAIL, exit_code: 1, failed_rules: {GR-FEA-05: quarantine_rows}, quarantined: seeded}}

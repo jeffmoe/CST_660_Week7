@@ -9,18 +9,17 @@ import pytest
 
 import generate_synthetic
 import validate_synthetic
+from conftest import SYNTHETIC_ARGS
 
 
 @pytest.fixture(scope="module")
-def generated(tmp_path_factory):
-    out = tmp_path_factory.mktemp("synthetic")
-    assert generate_synthetic.main(["--subscribers", "600", "--days", "140", "--seed", "11", "--out", str(out)]) == 0
-    return out
+def generated(synthetic_data):
+    return synthetic_data
 
 
 def test_generation_is_deterministic(generated, tmp_path):
     again = tmp_path / "again"
-    generate_synthetic.main(["--subscribers", "600", "--days", "140", "--seed", "11", "--out", str(again)])
+    generate_synthetic.main([*SYNTHETIC_ARGS, "--out", str(again)])
     for name in ("features.churn_features", "rag.transcript_chunks"):
         pd.testing.assert_frame_equal(pd.read_parquet(generated / f"{name}.parquet"), pd.read_parquet(again / f"{name}.parquet"))
 

@@ -19,6 +19,8 @@ The Aurora Nutrition Subscription Health Data Product — ADR and Operating Plan
 | `aurora_synthetic/`, `scripts/generate_synthetic.py` | Synthetic data generator: simulated source systems (driven by the assumptions register), seeded edge cases, contract-conformant datasets in `synthetic/data/` (gitignored) |
 | `synthetic/lineage.yaml` → `docs/lineage.md` | Field-level lineage for every contract column |
 | `scripts/validate_synthetic.py` → `docs/synthetic_validation_report.md` | Validates contracts, governance rules, ADR-003 incremental semantics, security controls and lineage against the synthetic data |
+| `scripts/validate_contract.py`, `aurora_contracts/validator.py` | Contract validator CLI: runs a dataset's governance rules and fails (exit 1, or 2 when blocked) on violations |
+| `validator/demo_cases.yaml`, `scripts/demo_validator.py` → `docs/validator_demo.md` | Demonstration against the seeded bad records with expected vs actual pass/fail output |
 | `assumptions/derived/projections.csv` | Generated month-by-month projections per scenario |
 
 Regenerate after editing any source file:
@@ -33,5 +35,7 @@ python scripts/build_contracts.py  # validates contracts against ADR-001..003 + 
 python scripts/build_mlops.py      # handoff, RAGOps and cost plans; checks coupling to ADR-003, contracts, assumptions
 python scripts/generate_synthetic.py   # synthetic data with seeded edge cases (deterministic per --seed)
 python scripts/validate_synthetic.py   # validates the specs against it; writes the report and lineage doc
+python scripts/validate_contract.py features.churn_features   # validate one dataset (exit 0 pass / 1 fail / 2 blocked)
+python scripts/demo_validator.py       # demonstration run against the seeded bad records
 python -m pytest                  # all tests, including an end-to-end synthetic run
 ```
