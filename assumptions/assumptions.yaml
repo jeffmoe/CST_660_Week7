@@ -1,0 +1,323 @@
+# Aurora Nutrition - Subscription Health Data Product
+# Assumptions register: single source of truth for planning inputs.
+#
+# Every assumption carries low / base / high values so downstream sizing can be
+# run as scenarios. `basis` records where the number came from; `confidence`
+# is High / Medium / Low; `own_testing` = true means the value can only be
+# confirmed by Aurora's own measurement (see evidence/own_testing_claims.csv).
+#
+# Regenerate derived outputs with:  python scripts/build_assumptions.py
+
+meta:
+  register_version: "0.1.0"
+  planning_horizon_months: 12
+  fiscal_year_start: "2027-01"
+  owner: "Lead Analytics Engineer"
+  last_reviewed: "2026-10-23"
+
+assumptions:
+
+  # ---------------------------------------------------------------- growth
+  - id: A-GRW-01
+    category: Subscriber growth
+    name: Starting active subscribers
+    unit: subscribers
+    low: 40000
+    base: 40000
+    high: 40000
+    basis: Current billing-system count of active subscriptions (leadership brief).
+    confidence: High
+    owner: Finance / RevOps
+    validation: Reconcile against billing system on FY start date.
+    own_testing: false
+
+  - id: A-GRW-02
+    category: Subscriber growth
+    name: End-of-year active subscribers
+    unit: subscribers
+    low: 180000
+    base: 250000
+    high: 320000
+    basis: >-
+      Base is the leadership target. Low assumes 70% attainment; high assumes
+      a ~30% overshoot from a successful retail/marketplace launch. Sizing is
+      done against HIGH so the platform is not re-architected mid-year.
+    confidence: Medium
+    owner: Leadership / Growth
+    validation: Monthly variance check of actuals vs curve; re-baseline if off by >15% for 2 consecutive months.
+    own_testing: false
+
+  - id: A-GRW-03
+    category: Subscriber growth
+    name: Growth curve shape
+    unit: model
+    low: compound
+    base: compound
+    high: compound
+    basis: >-
+      Constant month-over-month compound growth between start and end values
+      (base = 16.5%/mo). Front-loaded S-curves would bring peak volumes forward;
+      compound is the conservative choice for budget timing.
+    confidence: Low
+    owner: Growth
+    validation: Fit compound vs logistic to the first 3 months of actuals.
+    own_testing: false
+
+  - id: A-GRW-04
+    category: Subscriber growth
+    name: Monthly gross churn rate
+    unit: fraction / month
+    low: 0.05
+    base: 0.07
+    high: 0.10
+    basis: >-
+      Typical range for DTC consumable subscriptions; drives the number of
+      cancelled-subscriber histories retained for ML training. Must be replaced
+      by Aurora's measured cohort churn.
+    confidence: Low
+    owner: Retention team
+    validation: Compute trailing 12-month cohort churn from billing data.
+    own_testing: true
+
+  # ---------------------------------------------------------------- events
+  - id: A-EVT-01
+    category: Event volume
+    name: Daily active share of subscribers
+    unit: fraction
+    low: 0.15
+    base: 0.25
+    high: 0.35
+    basis: >-
+      Supplements are low-touch; most subscribers visit only around renewal,
+      shipping and promotions. Estimate pending product analytics export.
+    confidence: Low
+    owner: Product Analytics
+    validation: 30-day DAU/subscriber ratio from web/app analytics.
+    own_testing: true
+
+  - id: A-EVT-02
+    category: Event volume
+    name: Behavioral events per daily-active subscriber
+    unit: events / DAU / day
+    low: 25
+    base: 40
+    high: 60
+    basis: Page views, clicks, cart and account actions per session from current tag plan.
+    confidence: Medium
+    owner: Product Analytics
+    validation: Count events per session in a 14-day sample of the clickstream.
+    own_testing: true
+
+  - id: A-EVT-03
+    category: Event volume
+    name: Lifecycle + messaging events per subscriber
+    unit: events / subscriber / day
+    low: 1.0
+    base: 1.6
+    high: 2.5
+    basis: >-
+      Billing/renewal/skip/pause events (~0.1/day) plus email & SMS
+      sends/opens/clicks (~1.5/day). Applies to all subscribers, not only DAU.
+    confidence: Medium
+    owner: CRM / Lifecycle Marketing
+    validation: ESP export + billing webhook counts for one month.
+    own_testing: false
+
+  - id: A-EVT-04
+    category: Event volume
+    name: Peak-to-average daily multiplier
+    unit: multiplier
+    low: 2.0
+    base: 3.0
+    high: 5.0
+    basis: Promotional days (Black Friday, New Year) vs. ordinary days.
+    confidence: Medium
+    owner: Data Engineering
+    validation: Compare last BFCM daily event count to trailing 30-day mean.
+    own_testing: false
+
+  - id: A-EVT-05
+    category: Event volume
+    name: Average raw event payload size
+    unit: bytes
+    low: 600
+    base: 1000
+    high: 1500
+    basis: JSON events with context block (device, UTM, consent flags).
+    confidence: Medium
+    owner: Data Engineering
+    validation: Measure mean payload over a 1-day sample.
+    own_testing: false
+
+  # ----------------------------------------------------------- transcripts
+  - id: A-TRN-01
+    category: Transcript volume
+    name: Monthly contact rate
+    unit: contacts / subscriber / month
+    low: 0.06
+    base: 0.10
+    high: 0.15
+    basis: >-
+      Share of subscribers contacting support per month (chat, email, voice-to-text);
+      shipping, billing and cancellation are the dominant drivers.
+    confidence: Medium
+    owner: Customer Support
+    validation: Helpdesk ticket count / active subscribers for trailing 6 months.
+    own_testing: false
+
+  - id: A-TRN-02
+    category: Transcript volume
+    name: Average transcript length
+    unit: tokens
+    low: 400
+    base: 700
+    high: 1200
+    basis: Chat/email threads after signature and boilerplate stripping; voice transcripts are longer.
+    confidence: Low
+    owner: Customer Support
+    validation: Tokenize a 1,000-transcript sample with the chosen embedding tokenizer.
+    own_testing: true
+
+  - id: A-TRN-03
+    category: Transcript volume
+    name: Historical transcript backfill
+    unit: transcripts
+    low: 40000
+    base: 60000
+    high: 90000
+    basis: ~18 months of helpdesk history at the pre-growth subscriber base.
+    confidence: Medium
+    owner: Customer Support
+    validation: Helpdesk export row count.
+    own_testing: false
+
+  - id: A-TRN-04
+    category: Transcript volume
+    name: Retrieval chunk size
+    unit: tokens
+    low: 256
+    base: 512
+    high: 512
+    basis: Common RAG default; final value set by retrieval-quality testing.
+    confidence: Low
+    owner: ML Engineering
+    validation: Recall@k evaluation on labeled Aurora queries (see C-AI-01).
+    own_testing: true
+
+  - id: A-TRN-05
+    category: Transcript volume
+    name: Embedding dimensionality
+    unit: dimensions
+    low: 768
+    base: 1024
+    high: 1536
+    basis: Range of common commercial and open embedding models.
+    confidence: Medium
+    owner: ML Engineering
+    validation: Fixed once embedding model is selected.
+    own_testing: false
+
+  # --------------------------------------------------------------- storage
+  - id: A-STO-01
+    category: Storage footprint
+    name: Columnar compression ratio (JSON -> Parquet/warehouse)
+    unit: ratio
+    low: 5
+    base: 8
+    high: 10
+    basis: >-
+      Typical for semi-structured clickstream in columnar formats. HIGH scenario
+      uses the LOW ratio (worst case) when sizing.
+    confidence: Medium
+    owner: Data Engineering
+    validation: Load 1 day of events and compare raw vs stored bytes.
+    own_testing: true
+
+  - id: A-STO-02
+    category: Storage footprint
+    name: Raw event hot retention
+    unit: months
+    low: 13
+    base: 13
+    high: 25
+    basis: 13 months supports year-over-year comparison; older raw data moves to archive tier.
+    confidence: High
+    owner: Data Governance
+    validation: Policy sign-off with Legal (privacy retention limits).
+    own_testing: false
+
+  - id: A-STO-03
+    category: Storage footprint
+    name: Modeled-layer overhead vs compressed raw
+    unit: multiplier
+    low: 0.5
+    base: 1.0
+    high: 1.5
+    basis: Staging, intermediate, marts, snapshots and feature tables as a multiple of raw.
+    confidence: Low
+    owner: Analytics Engineering
+    validation: Measure after first 3 months of dbt models in production.
+    own_testing: true
+
+  - id: A-STO-04
+    category: Storage footprint
+    name: Vector index overhead vs raw vectors
+    unit: multiplier
+    low: 1.2
+    base: 1.5
+    high: 2.0
+    basis: HNSW graph + metadata overhead on top of float32 vectors.
+    confidence: Medium
+    owner: ML Engineering
+    validation: Inspect index size after backfill load.
+    own_testing: false
+
+  # ---------------------------------------------------------------- budget
+  - id: A-BUD-01
+    category: Budget ceiling
+    name: Annual platform run-rate ceiling (excl. headcount)
+    unit: USD / year
+    low: 120000
+    base: 180000
+    high: 240000
+    basis: >-
+      Placeholder pending Finance confirmation. Base sized at ~0.15% of
+      projected year-end ARR (250k subs x ~$40/mo x 12). Hard ceiling = base;
+      high is the escalation threshold requiring CFO approval.
+    confidence: Low
+    owner: Finance (CFO)
+    validation: Written confirmation from Finance before ADR approval.
+    own_testing: false
+
+  - id: A-BUD-02
+    category: Budget ceiling
+    name: Budget allocation by component
+    unit: share of A-BUD-01
+    allocation:
+      warehouse_or_lakehouse_compute: 0.50
+      storage: 0.05
+      orchestration: 0.08
+      ingestion_and_streaming: 0.12
+      llm_inference_and_embeddings: 0.15
+      vector_store: 0.04
+      observability_and_quality: 0.06
+    basis: Starting split for guardrails; rebalanced quarterly against actual billing.
+    confidence: Low
+    owner: Lead Analytics Engineer
+    validation: Monthly cloud bill tagged by component.
+    own_testing: true
+
+  - id: A-BUD-03
+    category: Budget ceiling
+    name: Cost per retention-assistant conversation
+    unit: USD / conversation
+    low: 0.02
+    base: 0.05
+    high: 0.15
+    basis: >-
+      Retrieval + generation with prompt caching. Depends on model choice,
+      turns per conversation and context size; must be measured.
+    confidence: Low
+    owner: ML Engineering
+    validation: Instrumented pilot with token logging (see C-AI-04).
+    own_testing: true
