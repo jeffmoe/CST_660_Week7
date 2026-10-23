@@ -1,0 +1,868 @@
+# Aurora Nutrition - Subscription Health data product
+# Security & privacy matrix: PII handling, consent, retention, access control.
+#
+# Coupled to assumptions/assumptions.yaml: regime scope is resolved from the
+# A-REG-* assumptions per scenario, and retention windows are resolved from the
+# regimes in scope (plus A-STO-02 for raw events). Change an assumption and
+# re-run:  python scripts/build_security_matrix.py
+#
+# Legal references describe obligations; they are not evidence of how to meet
+# them, and every interpretation here needs the Legal gates below. Retention
+# values are in months (fractional allowed; 1 month ~ 30 days).
+
+meta:
+  matrix_version: "0.1.0"
+  last_reviewed: "2026-10-23"
+  owner: "Lead Analytics Engineer (with Privacy / Legal and Security lead)"
+  stated_scope_scenario: base
+
+# --------------------------------------------------------------------------
+classification:
+  - level: C0
+    name: Public
+    definition: Published or intended for publication.
+    examples: Product catalog, published prices.
+    handling: No restrictions.
+    llm_provider: allowed
+    agent_access: allowed
+    export: allowed
+  - level: C1
+    name: Internal
+    definition: Business data with no personal data, or aggregates with small cells suppressed.
+    examples: Daily KPI aggregates (k >= 10), model performance metrics.
+    handling: Employees and approved service identities; encrypted at rest.
+    llm_provider: allowed
+    agent_access: allowed
+    export: allowed after SEC-G4 for external recipients
+  - level: C2
+    name: Confidential
+    definition: Pseudonymous personal data keyed by surrogate subscriber_id, or business-sensitive data.
+    examples: Subscription status history, churn features and scores, clickstream with device IDs removed.
+    handling: Role-based access; encrypted at rest and in transit; access logged.
+    llm_provider: not allowed without SEC-G3
+    agent_access: synthetic copies only (ADR-004)
+    export: SEC-G4 re-identification review required
+  - level: C3
+    name: Restricted
+    definition: Direct identifiers, contact data, free-text transcripts, consumer health data, payment metadata, embeddings of personal text.
+    examples: Name, email, phone, address, raw/redacted transcripts, wellness-quiz answers, card last4.
+    handling: Column masking by default (ABAC-01); unmasked only for listed roles and purposes; access logged and reviewed quarterly.
+    llm_provider: only redacted text, only after SEC-G3 (ADR-004 G0)
+    agent_access: never (ADR-004 Zone 3)
+    export: not allowed except to the data subject or under legal process
+  - level: C4
+    name: Prohibited
+    definition: Data Aurora must never store in the analytics platform.
+    examples: Full card number (PAN), CVV, passwords, government ID numbers.
+    handling: Blocked at ingestion; DLP scan of transcripts and free text (ABAC-07); any hit is a security incident.
+    llm_provider: never
+    agent_access: never
+    export: never
+
+# --------------------------------------------------------------------------
+regimes:
+  - id: CCPA
+    name: California Consumer Privacy Act as amended by CPRA
+    in_scope_when: {A-REG-01: [US, US + EU/UK]}
+    applicability_test: ccpa_revenue
+    jurisdiction_assumption: true
+    note: >-
+      Applies to a for-profit business doing business in California that meets a
+      threshold, including annual gross revenue above $26,625,000 (2025 CPI
+      adjustment) in the preceding calendar year. Tested against projected revenue.
+  - id: US-STATE
+    name: Other US state comprehensive privacy laws (VA, CO, CT, TX, OR and others)
+    in_scope_when: {A-REG-01: [US, US + EU/UK]}
+    jurisdiction_assumption: true
+    note: >-
+      Thresholds are mostly per-state consumer counts; several require opt-in
+      consent for sensitive data including health data. Per-state applicability
+      not yet assessed.
+  - id: WA-MHMDA
+    name: Washington My Health My Data Act (and similar state consumer-health-data laws)
+    in_scope_when: {A-REG-02: [consumer health data]}
+    jurisdiction_assumption: true
+    note: >-
+      Separate opt-in consent to collect and to share consumer health data,
+      separate authorization to sell, deletion rights, private right of action.
+      Covers data collected in Washington, not only Washington residents.
+  - id: GDPR
+    name: EU GDPR and UK GDPR
+    in_scope_when: {A-REG-01: [US + EU/UK]}
+    jurisdiction_assumption: true
+    note: Applies through Art. 3(2) targeting of EU/UK residents if EU/UK shipping launches.
+  - id: TCPA-CANSPAM
+    name: US TCPA (SMS/calls) and CAN-SPAM (commercial email)
+    in_scope_when: {A-REG-01: [US, US + EU/UK]}
+    jurisdiction_assumption: false
+  - id: CALL-RECORDING
+    name: US state all-party-consent call-recording laws (e.g. California Penal Code 632)
+    in_scope_when: {A-REG-01: [US, US + EU/UK]}
+    jurisdiction_assumption: true
+    note: Applies only if voice support is recorded; assumed yes.
+  - id: PCI-DSS
+    name: PCI DSS v4.0.1 (contractual, via payment processor)
+    in_scope_when: {A-REG-05: ["processor-tokenized, no PAN stored"]}
+    jurisdiction_assumption: false
+  - id: US-TAX
+    name: US federal and state tax record-keeping
+    in_scope_when: {A-REG-01: [US, US + EU/UK]}
+    jurisdiction_assumption: false
+    note: IRS guidance is generally 3 years and up to 7 in some cases; state sales-tax audit periods vary. 7 years used as the conservative floor.
+  - id: US-BREACH
+    name: US state data-breach notification laws (all 50 states)
+    in_scope_when: {A-REG-01: [US, US + EU/UK]}
+    jurisdiction_assumption: false
+
+# --------------------------------------------------------------------------
+consent_purposes:
+  - id: P1
+    purpose: Contract fulfillment (orders, shipping, billing, account)
+    us_basis: Necessary to provide the requested service; disclosed in notice at collection
+    gdpr_basis: Art. 6(1)(b) contract
+    mechanism: Notice (no opt-in)
+    withdrawal: Not withdrawable while subscribed; ends with account closure
+    propagation_sla: n/a
+    enforcement_attribute: none
+  - id: P2
+    purpose: Service communications and customer support (incl. support transcripts)
+    us_basis: Necessary to provide the service; disclosed in notice
+    gdpr_basis: Art. 6(1)(b) contract
+    mechanism: Notice (no opt-in)
+    withdrawal: Not withdrawable while subscribed
+    propagation_sla: n/a
+    enforcement_attribute: none
+  - id: P3
+    purpose: Marketing email
+    us_basis: CAN-SPAM opt-out (unsubscribe in every message)
+    gdpr_basis: Art. 6(1)(a) consent (or soft opt-in where national law allows)
+    mechanism: US opt-out; EU/UK opt-in
+    withdrawal: Unsubscribe link, preference center
+    propagation_sla: 10 business days (CAN-SPAM); target 24 h
+    enforcement_attribute: consent.marketing_email
+  - id: P4
+    purpose: Marketing SMS
+    us_basis: TCPA prior express written consent
+    gdpr_basis: Art. 6(1)(a) consent
+    mechanism: Opt-in (checkbox not pre-ticked, keyword confirmation)
+    withdrawal: STOP keyword, preference center
+    propagation_sla: Immediate at SMS provider; 24 h in warehouse
+    enforcement_attribute: consent.marketing_sms
+  - id: P5
+    purpose: Analytics, churn modeling and retention targeting
+    us_basis: Business purpose disclosed in notice at collection
+    gdpr_basis: Art. 6(1)(f) legitimate interests with documented assessment; Art. 21 right to object
+    mechanism: Notice; GDPR objection honored
+    withdrawal: Privacy request; GDPR objection
+    propagation_sla: Excluded from next nightly feature build
+    enforcement_attribute: consent.analytics_objection
+  - id: P6
+    purpose: Sharing with ad platforms for cross-context behavioral advertising
+    us_basis: CCPA/CPRA right to opt out of sale/sharing; Global Privacy Control honored
+    gdpr_basis: Art. 6(1)(a) consent (plus ePrivacy cookie consent)
+    mechanism: US opt-out (link + GPC); EU/UK opt-in
+    withdrawal: '"Do Not Sell or Share" link, GPC signal, cookie banner'
+    propagation_sla: Before next event is sent to an ad platform
+    enforcement_attribute: consent.ad_sharing
+  - id: P7
+    purpose: Collecting and using consumer health data (wellness quiz, health-inferable purchase use)
+    us_basis: WA MHMDA separate opt-in to collect and separate opt-in to share; sensitive-data opt-in under several state laws
+    gdpr_basis: Art. 9(2)(a) explicit consent
+    mechanism: Separate opt-in, not bundled with terms or privacy policy
+    withdrawal: Preference center; privacy request
+    propagation_sla: Excluded from health-tagged views immediately; deleted per R-14
+    enforcement_attribute: consent.health_data
+  - id: P8
+    purpose: Processing redacted transcripts with a third-party model provider (retention assistant)
+    us_basis: Not covered by current consent (A-GOV-01); requires service-provider contract and Legal decision at SEC-G3
+    gdpr_basis: To be determined at SEC-G3; DPIA required
+    mechanism: Blocked until SEC-G3 clears
+    withdrawal: Privacy request removes transcripts and embeddings per R-11, R-12
+    propagation_sla: 45 days (deletion request SLA)
+    enforcement_attribute: consent.ai_processing
+  - id: P9
+    purpose: Recording support calls
+    us_basis: All-party notice at call start (two-party-consent states)
+    gdpr_basis: Art. 6(1)(f) with notice
+    mechanism: Notice at call start; caller may decline and continue unrecorded
+    withdrawal: Decline at call start; deletion request
+    propagation_sla: n/a
+    enforcement_attribute: none
+
+# --------------------------------------------------------------------------
+# Retention. `policy_months` is the business need. `min` is a legal or
+# contractual floor that applies while the regime is in scope. `max` is Aurora's
+# cap while the regime is in scope, implementing storage-limitation /
+# minimization duties that set no number themselves (CNIL's 25 months is the one
+# published figure used). Effective window per scenario =
+#   max(policy, largest in-scope minimum), capped by smallest in-scope maximum
+#   and by any `max_from` rule. A minimum above a cap is a CONFLICT that fails
+#   the build.
+retention_rules:
+  - id: R-01
+    data_type: Subscriber identity, contact and subscription history
+    clock: after account closure
+    policy_months: 36
+    basis: Win-back and support for returning customers (3 years); capped at 24 months under GDPR storage limitation; deletion request overrides.
+    max: {GDPR: 24}
+    end_action: Delete direct identifiers; keep subscription history under surrogate ID as C2
+  - id: R-02
+    data_type: Orders, fulfillment and shipping addresses
+    clock: after order date
+    policy_months: 24
+    min: {US-TAX: 84}
+    basis: Business need is 24 months of order history; tax and sales-tax audit records set the 7-year floor.
+    end_action: Delete; keep only aggregated financials
+  - id: R-03
+    data_type: Payment token and card metadata (brand, last4, expiry)
+    clock: after subscription end
+    policy_months: 13
+    basis: Card-network dispute and chargeback windows (engineering judgement; confirm with processor).
+    end_action: Delete token reference
+  - id: R-04
+    data_type: Full card number, CVV, passwords, government IDs
+    clock: on detection
+    policy_months: 0
+    max: {PCI-DSS: 0}
+    basis: Must never be stored; purge on detection.
+    end_action: Purge and open a security incident
+  - id: R-05
+    data_type: Invoices, transactions, refunds, chargebacks, dunning events
+    clock: after transaction date
+    policy_months: 36
+    min: {US-TAX: 84}
+    basis: Business need is 36 months for revenue analysis; financial and tax records set the 7-year floor.
+    end_action: Delete; keep aggregated financials
+  - id: R-06
+    data_type: Raw identified clickstream (device/cookie IDs, IP, user agent)
+    clock: after event
+    policy_from: A-STO-02
+    max: {GDPR: 25}
+    basis: Hot raw retention from the assumptions register; GDPR-scope cap follows CNIL audience-measurement guidance (25 months).
+    end_action: Drop IP/device IDs; roll into C1 aggregates (R-07)
+  - id: R-07
+    data_type: Aggregated or de-identified behavioral data (k >= 10)
+    clock: after aggregation
+    policy_months: 60
+    basis: Year-over-year trend analysis; no personal data once SEC-G4 passes.
+    end_action: Delete
+  - id: R-08
+    data_type: Email and SMS engagement events
+    clock: after event
+    policy_months: 36
+    max: {GDPR: 24}
+    basis: Engagement features for churn model and deliverability (3 years of seasonality); capped at 24 months under GDPR.
+    end_action: Delete
+  - id: R-09
+    data_type: Consent and opt-out ledger
+    clock: after consent withdrawn or account closure
+    policy_months: 24
+    min: {TCPA-CANSPAM: 48}
+    basis: Business need is 24 months; proof of SMS consent must outlast the four-year TCPA limitation period.
+    end_action: Delete
+  - id: R-10
+    data_type: Raw support transcripts and tickets (helpdesk system of record)
+    clock: after ticket closed
+    policy_months: 36
+    max: {GDPR: 24}
+    basis: Support history and RAG corpus source (3 years); capped at 24 months under GDPR; never copied unredacted into the warehouse.
+    end_action: Delete in helpdesk
+  - id: R-11
+    data_type: Redacted transcripts and retrieval chunks (warehouse)
+    clock: after ticket closed
+    policy_months: 36
+    max_from: R-10
+    basis: A derived copy may not outlive its source.
+    end_action: Delete rows and chunks
+  - id: R-12
+    data_type: Transcript embeddings / vector index
+    clock: after ticket closed
+    policy_months: 36
+    max_from: R-11
+    basis: Embeddings can be inverted to recover text (E-SEC-04), so they follow the text they encode.
+    end_action: Delete vectors; rebuild index segment
+  - id: R-13
+    data_type: Support call recordings
+    clock: after call
+    policy_months: 3
+    basis: Kept only until transcription and redaction QA complete.
+    end_action: Delete audio
+  - id: R-14
+    data_type: Wellness-quiz answers and health-interest tags
+    clock: after account closure or consent withdrawal
+    policy_months: 24
+    max: {WA-MHMDA: 3, GDPR: 3}
+    basis: Personalization for returning customers wants 24 months; when the data is consumer health data (A-REG-02) it is minimized to 3 months; deletion request overrides.
+    end_action: Delete
+  - id: R-15
+    data_type: Churn features and risk scores (pseudonymous)
+    clock: after feature date
+    policy_months: 37
+    max: {GDPR: 25}
+    basis: Three years of history plus one month for the churn model's training window; capped at 25 months under GDPR.
+    end_action: Delete
+  - id: R-16
+    data_type: Consumer privacy request records (access, delete, correct, opt-out)
+    clock: after request closed
+    policy_months: 12
+    min: {CCPA: 24}
+    basis: Business need is 12 months; CCPA regulations require 24 months of request records.
+    end_action: Delete
+  - id: R-17
+    data_type: Data-platform access and audit logs
+    clock: after log date
+    policy_months: 6
+    min: {PCI-DSS: 12}
+    basis: Business need is 6 months for incident triage; PCI DSS 10.5.1 requires 12 months (3 immediately available).
+    end_action: Delete
+  - id: R-18
+    data_type: Retention-assistant prompts, retrieved context and responses
+    clock: after conversation
+    policy_months: 1
+    basis: Debugging and evaluation sampling only; provider-side retention set at SEC-G3.
+    end_action: Delete
+  - id: R-19
+    data_type: Backups, time-travel and fail-safe copies
+    clock: after write
+    policy_months: 1
+    basis: Must expire within the 45-day deletion-request SLA so deletions reach every copy.
+    end_action: Expire automatically
+
+# --------------------------------------------------------------------------
+pii_inventory:
+  # ----------------------------------------------------------- subscription
+  - id: PII-SUB-01
+    domain: Subscription
+    element: Subscriber identity and contact
+    fields: name, email, phone
+    identifiability: direct
+    classification: C3
+    system_of_record: Commerce / subscription platform
+    warehouse_layer: staging (masked), marts (surrogate ID only)
+    purposes: [P1, P2, P3, P4]
+    retention: R-01
+    access_policies: [ABAC-01, ABAC-06]
+    regimes: [CCPA, US-STATE, GDPR, US-BREACH]
+  - id: PII-SUB-02
+    domain: Subscription
+    element: Shipping and billing address
+    fields: street, city, state, ZIP, country
+    identifiability: direct
+    classification: C3
+    system_of_record: Commerce / subscription platform
+    warehouse_layer: staging (masked); marts keep state and ZIP3 only
+    purposes: [P1]
+    retention: R-02
+    access_policies: [ABAC-01, ABAC-06]
+    regimes: [CCPA, US-STATE, GDPR, US-TAX, US-BREACH]
+  - id: PII-SUB-03
+    domain: Subscription
+    element: Subscription state and plan history
+    fields: subscriber_id, plan, status, start/pause/skip/cancel dates, cancel reason
+    identifiability: pseudonymous
+    classification: C2
+    system_of_record: Commerce / subscription platform
+    warehouse_layer: staging, marts, features
+    purposes: [P1, P5]
+    retention: R-01
+    access_policies: [ABAC-02, ABAC-06]
+    regimes: [CCPA, US-STATE, GDPR]
+  - id: PII-SUB-04
+    domain: Subscription
+    element: Product (SKU) purchase history
+    fields: subscriber_id, SKU, category, quantity, order date
+    identifiability: quasi-identifier; health-inferable
+    classification: C3
+    system_of_record: Commerce platform
+    warehouse_layer: staging, marts; health-inferable categories tagged
+    purposes: [P1, P5, P7]
+    retention: R-02
+    access_policies: [ABAC-01, ABAC-02, ABAC-03, ABAC-06]
+    regimes: [CCPA, US-STATE, WA-MHMDA, GDPR, US-TAX]
+  - id: PII-SUB-05
+    domain: Subscription
+    element: Wellness-quiz answers and stated health goals
+    fields: goals (sleep, energy, pregnancy, etc.), dietary restrictions, conditions
+    identifiability: sensitive (consumer health data)
+    classification: C3
+    system_of_record: Quiz / personalization service
+    warehouse_layer: restricted schema only; never in features without P7
+    purposes: [P7]
+    retention: R-14
+    access_policies: [ABAC-01, ABAC-03, ABAC-06]
+    regimes: [CCPA, US-STATE, WA-MHMDA, GDPR]
+  - id: PII-SUB-06
+    domain: Subscription
+    element: Clickstream with device and network identifiers
+    fields: cookie/device ID, IP address, user agent, page, event, UTM
+    identifiability: quasi-identifier
+    classification: C3
+    system_of_record: Event collector (ADR-003)
+    warehouse_layer: raw (C3); staging drops IP and hashes device ID (C2)
+    purposes: [P5, P6]
+    retention: R-06
+    access_policies: [ABAC-01, ABAC-02, ABAC-04, ABAC-06]
+    regimes: [CCPA, US-STATE, GDPR]
+  - id: PII-SUB-07
+    domain: Subscription
+    element: Email and SMS engagement events
+    fields: subscriber_id, campaign, send/open/click/unsubscribe
+    identifiability: pseudonymous
+    classification: C2
+    system_of_record: Email / SMS provider
+    warehouse_layer: raw, staging, features
+    purposes: [P3, P4, P5]
+    retention: R-08
+    access_policies: [ABAC-02, ABAC-06]
+    regimes: [CCPA, TCPA-CANSPAM, GDPR]
+  - id: PII-SUB-08
+    domain: Subscription
+    element: Consent and opt-out ledger
+    fields: subscriber_id, purpose, state, source, timestamp, GPC flag
+    identifiability: pseudonymous
+    classification: C2
+    system_of_record: Consent management platform
+    warehouse_layer: raw (append-only), current-state view
+    purposes: [P1]
+    retention: R-09
+    access_policies: [ABAC-06]
+    regimes: [CCPA, TCPA-CANSPAM, WA-MHMDA, GDPR]
+  - id: PII-SUB-09
+    domain: Subscription
+    element: Churn features and risk scores
+    fields: subscriber_id, engagement features, tenure, risk score, model version
+    identifiability: pseudonymous; re-identifiable by linkage
+    classification: C2
+    system_of_record: Warehouse (feature tables, ADR-001)
+    warehouse_layer: features
+    purposes: [P5]
+    retention: R-15
+    access_policies: [ABAC-02, ABAC-03, ABAC-05, ABAC-06]
+    regimes: [CCPA, US-STATE, GDPR]
+  - id: PII-SUB-10
+    domain: Subscription
+    element: Consumer privacy requests
+    fields: requester identity, request type, dates, response, denial basis
+    identifiability: direct
+    classification: C3
+    system_of_record: Privacy request tool
+    warehouse_layer: not loaded (privacy tool only)
+    purposes: [P1]
+    retention: R-16
+    access_policies: [ABAC-01]
+    regimes: [CCPA, US-STATE, GDPR]
+  # ------------------------------------------------------------- transcript
+  - id: PII-TRN-01
+    domain: Transcript
+    element: Raw support transcripts and tickets
+    fields: free text (may contain names, addresses, card numbers, health details), agent notes, attachments
+    identifiability: direct + sensitive; C4 contamination risk
+    classification: C3
+    system_of_record: Helpdesk
+    warehouse_layer: not loaded unredacted; 7-day redaction staging outside analyst access
+    purposes: [P2]
+    retention: R-10
+    access_policies: [ABAC-01, ABAC-04, ABAC-07]
+    regimes: [CCPA, US-STATE, WA-MHMDA, GDPR, PCI-DSS, US-BREACH]
+  - id: PII-TRN-02
+    domain: Transcript
+    element: Redacted transcripts and retrieval chunks
+    fields: redacted text, ticket_id, surrogate subscriber_id, topic tags
+    identifiability: residual (redaction recall < 100%)
+    classification: C3
+    system_of_record: Warehouse
+    warehouse_layer: restricted transcripts schema
+    purposes: [P2, P8]
+    retention: R-11
+    access_policies: [ABAC-01, ABAC-04, ABAC-05, ABAC-06, ABAC-07]
+    regimes: [CCPA, US-STATE, WA-MHMDA, GDPR]
+  - id: PII-TRN-03
+    domain: Transcript
+    element: Transcript embeddings and vector index
+    fields: vector, chunk_id, metadata
+    identifiability: invertible to approximate text
+    classification: C3
+    system_of_record: Vector store
+    warehouse_layer: vector store (restricted)
+    purposes: [P8]
+    retention: R-12
+    access_policies: [ABAC-04, ABAC-05, ABAC-06]
+    regimes: [CCPA, US-STATE, GDPR]
+  - id: PII-TRN-04
+    domain: Transcript
+    element: Support call recordings
+    fields: audio
+    identifiability: direct (voice) + sensitive
+    classification: C3
+    system_of_record: Telephony provider
+    warehouse_layer: not loaded
+    purposes: [P2, P9]
+    retention: R-13
+    access_policies: [ABAC-01, ABAC-04]
+    regimes: [CCPA, CALL-RECORDING, GDPR]
+  - id: PII-TRN-05
+    domain: Transcript
+    element: Retention-assistant conversation logs
+    fields: staff user, prompt, retrieved chunk IDs, response, tokens
+    identifiability: residual
+    classification: C3
+    system_of_record: Assistant service
+    warehouse_layer: restricted logs schema
+    purposes: [P8]
+    retention: R-18
+    access_policies: [ABAC-01, ABAC-05, ABAC-07]
+    regimes: [CCPA, GDPR]
+  # ---------------------------------------------------------------- billing
+  - id: PII-BIL-01
+    domain: Billing
+    element: Payment token and card metadata
+    fields: processor token, brand, last4, expiry month/year
+    identifiability: quasi-identifier
+    classification: C3
+    system_of_record: Payment processor
+    warehouse_layer: staging (masked); marts keep brand only
+    purposes: [P1]
+    retention: R-03
+    access_policies: [ABAC-01, ABAC-06]
+    regimes: [CCPA, PCI-DSS, US-BREACH]
+  - id: PII-BIL-02
+    domain: Billing
+    element: Full card number, CVV
+    fields: PAN, CVV
+    identifiability: direct (financial)
+    classification: C4
+    system_of_record: Payment processor only
+    warehouse_layer: never; DLP blocks at ingestion and in transcripts
+    purposes: [P1]
+    retention: R-04
+    access_policies: [ABAC-07]
+    regimes: [PCI-DSS, US-BREACH]
+  - id: PII-BIL-03
+    domain: Billing
+    element: Invoices, transactions, refunds and chargebacks
+    fields: subscriber_id, amount, currency, tax, status, reason codes
+    identifiability: pseudonymous
+    classification: C2
+    system_of_record: Billing platform / processor
+    warehouse_layer: staging, marts, features
+    purposes: [P1, P5]
+    retention: R-05
+    access_policies: [ABAC-02, ABAC-06]
+    regimes: [CCPA, US-TAX]
+  - id: PII-BIL-04
+    domain: Billing
+    element: Failed-payment and dunning events
+    fields: subscriber_id, decline code, retry count, dates
+    identifiability: pseudonymous
+    classification: C2
+    system_of_record: Billing platform
+    warehouse_layer: raw, staging, features
+    purposes: [P1, P5]
+    retention: R-05
+    access_policies: [ABAC-02, ABAC-06]
+    regimes: [CCPA, US-TAX]
+  # ------------------------------------------------------------- operations
+  - id: PII-OPS-01
+    domain: Operations
+    element: Data-platform access and audit logs
+    fields: user/service identity, query, objects accessed, timestamp, source IP
+    identifiability: direct (employees)
+    classification: C2
+    system_of_record: Warehouse / cloud audit logs
+    warehouse_layer: security schema
+    purposes: [P1]
+    retention: R-17
+    access_policies: [ABAC-06]
+    regimes: [PCI-DSS, CCPA]
+
+# --------------------------------------------------------------------------
+# RBAC: baseline grant per classification level. ABAC policies narrow it.
+# full = unmasked; masked = C3 columns masked; pseudo = surrogate IDs only;
+# agg = aggregates with k >= 10; synthetic = synthetic data only; none.
+rbac_roles:
+  - role: privacy_officer
+    description: Handles privacy requests, consent and deletion audits
+    C1: full
+    C2: full
+    C3: full (logged, purpose-bound)
+    C4: none
+  - role: platform_admin_breakglass
+    description: Emergency platform access, time-boxed and approved
+    C1: full
+    C2: full
+    C3: masked
+    C4: none
+  - role: data_engineer
+    description: Ingestion, redaction pipeline, platform operations
+    C1: full
+    C2: full
+    C3: masked (unmasked in redaction staging only)
+    C4: none
+  - role: analytics_engineer
+    description: dbt models, marts, feature tables
+    C1: full
+    C2: full
+    C3: masked
+    C4: none
+  - role: ml_engineer
+    description: Churn model training and evaluation
+    C1: full
+    C2: pseudo
+    C3: none
+    C4: none
+  - role: retention_analyst
+    description: Retention dashboards and campaign analysis
+    C1: full
+    C2: pseudo
+    C3: none
+    C4: none
+  - role: retention_agent
+    description: Retention staff using the assistant and CRM
+    C1: agg
+    C2: own assigned subscribers only
+    C3: own assigned subscribers only (via CRM / assistant)
+    C4: none
+  - role: finance_analyst
+    description: Revenue and billing reporting
+    C1: full
+    C2: full (billing only)
+    C3: none
+    C4: none
+  - role: svc_retention_assistant
+    description: Assistant service identity (ADR-004 Zone 1)
+    C1: full
+    C2: none
+    C3: redacted transcripts and embeddings only, read-only
+    C4: none
+  - role: svc_code_agent
+    description: PR-authoring agent identity (ADR-004 Zone 2/3)
+    C1: synthetic
+    C2: synthetic
+    C3: none
+    C4: none
+
+abac_policies:
+  - id: ABAC-01
+    name: Default masking of Restricted columns
+    rule: Columns tagged pii=true / C3 return masked values unless role is in the unmasked list for that column AND the session declares a matching purpose.
+    attributes: [column.classification, user.role, session.purpose]
+    enforced_in: Warehouse masking policies (ADR-001)
+  - id: ABAC-02
+    name: Purpose and objection filter
+    rule: Rows for subscribers with consent.analytics_objection = true are excluded from feature, model and targeting views (row access policy).
+    attributes: [row.subscriber_id, consent.analytics_objection, view.purpose]
+    enforced_in: Warehouse row access policies; nightly feature build (ADR-002)
+  - id: ABAC-03
+    name: Consumer-health-data gate
+    rule: Health-tagged rows and columns (PII-SUB-04 health categories, PII-SUB-05) are visible only when consent.health_data = true AND view.purpose in {fulfillment, personalization}; never in churn features unless Legal approves at SEC-G8.
+    attributes: [column.health_tag, consent.health_data, view.purpose]
+    enforced_in: Warehouse row/column policies
+  - id: ABAC-04
+    name: Location-bound access to Restricted data
+    rule: Sessions whose user.location or service region is outside A-REG-03 hosting region are denied C3 unless the location is on the SEC-G1/SEC-G2 approved list.
+    attributes: [user.location, service.region, data.classification]
+    enforced_in: Identity provider conditional access + warehouse network policies
+  - id: ABAC-05
+    name: Service identities never see production PII
+    rule: Service identities in environment=prod are denied C2-C4 except svc_retention_assistant on redacted transcripts/embeddings; svc_code_agent sees synthetic schemas only (ADR-004).
+    attributes: [identity.type, environment, data.classification]
+    enforced_in: Warehouse roles; vector-store API keys
+  - id: ABAC-06
+    name: Deletion-pending exclusion
+    rule: Rows with deletion_pending = true are hidden from every role except privacy_officer until hard-deleted (within 45 days of a verified request).
+    attributes: [row.deletion_pending, user.role]
+    enforced_in: Row access policy on every subscriber-keyed table
+  - id: ABAC-07
+    name: Prohibited-data and free-text DLP
+    rule: Free text (transcripts, notes, prompts) is scanned for PAN, CVV, credentials and government IDs before landing; hits are dropped and raise a security incident.
+    attributes: [content.dlp_match]
+    enforced_in: Redaction pipeline (ADR-002 asset check)
+  - id: ABAC-08
+    name: Small-cell suppression on exports
+    rule: Any export or share outside the warehouse suppresses groups with fewer than 10 subscribers (k >= 10) and drops direct identifiers; changes to quasi-identifier sets go to SEC-G4.
+    attributes: [export.destination, group.size, column.quasi_identifier]
+    enforced_in: Export jobs; reverse-ETL connectors
+
+# --------------------------------------------------------------------------
+obligations:
+  - id: OB-01
+    regime: CCPA
+    obligation: Notice at collection, including the retention period (or criteria) for each category of personal information
+    legal_ref: Cal. Civ. Code 1798.100(a)(3)
+    controls: [R-01, R-02, R-06, R-10, R-14]
+    owner: Privacy / Legal
+  - id: OB-02
+    regime: CCPA
+    obligation: Rights to know, delete and correct; respond within 45 days
+    legal_ref: Cal. Civ. Code 1798.105, 1798.106, 1798.110, 1798.130
+    controls: [ABAC-06, R-19, C-SEC-03]
+    owner: Privacy officer
+  - id: OB-03
+    regime: CCPA
+    obligation: Right to opt out of sale/sharing; honor Global Privacy Control
+    legal_ref: Cal. Civ. Code 1798.120, 1798.135; 11 CCR 7025
+    controls: [P6]
+    owner: Growth + Privacy officer
+  - id: OB-04
+    regime: CCPA
+    obligation: Right to limit use of sensitive personal information
+    legal_ref: Cal. Civ. Code 1798.121
+    controls: [P7, ABAC-03]
+    owner: Privacy officer
+  - id: OB-05
+    regime: CCPA
+    obligation: Keep records of consumer requests for 24 months
+    legal_ref: 11 CCR 7101
+    controls: [R-16]
+    owner: Privacy officer
+  - id: OB-06
+    regime: CCPA
+    obligation: Service-provider / contractor contracts limiting use of personal information
+    legal_ref: Cal. Civ. Code 1798.100(d), 1798.140(ag); 11 CCR 7051
+    controls: [SEC-G1, SEC-G3]
+    owner: Legal
+  - id: OB-07
+    regime: US-STATE
+    obligation: Opt-in consent for sensitive data (incl. health) where state law requires; data protection assessments
+    legal_ref: e.g. Va. Code 59.1-578; Colo. Rev. Stat. 6-1-1308; Conn. Gen. Stat. 42-520
+    controls: [P7, ABAC-03, SEC-G8]
+    owner: Legal
+  - id: OB-08
+    regime: WA-MHMDA
+    obligation: Separate consent to collect and to share consumer health data; deletion on request incl. from processors; consumer health data privacy policy
+    legal_ref: RCW 19.373
+    controls: [P7, R-14, ABAC-03, SEC-G8]
+    owner: Legal
+  - id: OB-09
+    regime: GDPR
+    obligation: Lawful basis per purpose; explicit consent for special-category (health) data
+    legal_ref: GDPR Art. 6, Art. 9
+    controls: [P1, P2, P3, P4, P5, P6, P7, P8, P9]
+    owner: Legal
+  - id: OB-10
+    regime: GDPR
+    obligation: Storage limitation
+    legal_ref: GDPR Art. 5(1)(e)
+    controls: [R-01, R-06, R-08, R-10, R-15]
+    owner: Privacy officer
+  - id: OB-11
+    regime: GDPR
+    obligation: Data subject rights (access, erasure, objection) within one month
+    legal_ref: GDPR Art. 12, 15, 17, 21
+    controls: [ABAC-02, ABAC-06, C-SEC-03]
+    owner: Privacy officer
+  - id: OB-12
+    regime: GDPR
+    obligation: Transfers outside the EU/UK only with adequacy, SCCs/IDTA or other Chapter V mechanism, plus transfer impact assessment
+    legal_ref: GDPR Art. 44-49
+    controls: [SEC-G1, SEC-G2, ABAC-04]
+    owner: Legal
+  - id: OB-13
+    regime: GDPR
+    obligation: DPIA for large-scale profiling (churn scoring) and AI processing of transcripts
+    legal_ref: GDPR Art. 35
+    controls: [SEC-G3, SEC-G4]
+    owner: Privacy officer
+  - id: OB-14
+    regime: GDPR
+    obligation: Personal-data breach notification to the authority within 72 hours
+    legal_ref: GDPR Art. 33
+    controls: [R-17]
+    owner: Security lead
+  - id: OB-15
+    regime: TCPA-CANSPAM
+    obligation: Prior express written consent for marketing SMS; working unsubscribe for commercial email
+    legal_ref: 47 U.S.C. 227; 47 CFR 64.1200; 15 U.S.C. 7704
+    controls: [P3, P4, R-09]
+    owner: CRM / Lifecycle Marketing
+  - id: OB-16
+    regime: CALL-RECORDING
+    obligation: Notify all parties before recording support calls
+    legal_ref: e.g. Cal. Penal Code 632
+    controls: [P9, R-13]
+    owner: Customer Support
+  - id: OB-17
+    regime: PCI-DSS
+    obligation: Do not store sensitive authentication data after authorization; protect stored account data; retain audit logs 12 months
+    legal_ref: PCI DSS v4.0.1 Req. 3.3, 3.4, 10.5.1
+    controls: [R-04, ABAC-07, R-17]
+    owner: Security lead
+  - id: OB-18
+    regime: US-TAX
+    obligation: Retain records supporting income and sales tax
+    legal_ref: IRS record-keeping guidance; state sales-tax statutes
+    controls: [R-02, R-05]
+    owner: Finance
+  - id: OB-19
+    regime: US-BREACH
+    obligation: Notify affected residents (and regulators where required) after a breach of covered personal information
+    legal_ref: State breach-notification statutes (all 50 states)
+    controls: [R-17]
+    owner: Security lead
+
+# --------------------------------------------------------------------------
+review_gates:
+  - id: SEC-G1
+    name: Cross-border transfer / new subprocessor
+    risk: cross-border
+    trigger: Any new vendor, subprocessor or region that stores or processes C2-C4 data outside the A-REG-03 hosting region, or any subprocessor location change.
+    reviewers: [Privacy / Legal, Security lead]
+    evidence_required: Subprocessor location list, DPA/service-provider terms, transfer mechanism and transfer impact assessment when GDPR is in scope.
+    blocks: Contract signature and first data flow
+    related: [A-REG-03, A-REG-04, OB-06, OB-12]
+  - id: SEC-G2
+    name: Remote access from outside the hosting region
+    risk: cross-border
+    trigger: Any employee, contractor or BPO accessing C3 data from outside the hosting region (A-REG-04).
+    reviewers: [Security lead, Privacy / Legal, Customer Support lead]
+    evidence_required: Access scope per role, ABAC-04 allow-list entry, contract terms, device controls.
+    blocks: Granting access
+    related: [A-REG-04, ABAC-04, OB-12]
+  - id: SEC-G3
+    name: Third-party model provider data flow (same gate as ADR-004 G0)
+    risk: both
+    trigger: Any transcript text, subscriber-derived text or embedding request sent to an external model or embedding provider.
+    reviewers: [Privacy / Legal, Security lead, ML Engineering lead]
+    evidence_required: Provider retention and training terms, processing location, redaction recall result (C-AI-02), DPIA when GDPR is in scope.
+    blocks: Any external model call with Aurora data
+    related: [A-GOV-01, P8, OB-06, OB-13]
+  - id: SEC-G4
+    name: Re-identification review of data leaving the controlled zone
+    risk: re-identification
+    trigger: Any export, share, reverse-ETL destination or published dataset built from C2/C3 data (including ML feature extracts leaving the warehouse and "de-identified" sets).
+    reviewers: [Privacy officer, ML Engineering lead]
+    evidence_required: Quasi-identifier list, k-anonymity / small-cell result (C-SEC-01), recipient contract terms.
+    blocks: First run of the export
+    related: [ABAC-08, C-SEC-01, E-SEC-01, E-SEC-02, E-SEC-03]
+  - id: SEC-G5
+    name: New linkage of quasi-identifiers
+    risk: re-identification
+    trigger: A model or mart that joins datasets in a way that adds quasi-identifiers to a pseudonymous table (e.g. ZIP + birth year + purchase history, device ID to transcripts).
+    reviewers: [Privacy officer, Lead Analytics Engineer]
+    evidence_required: Before/after quasi-identifier set and uniqueness estimate (C-SEC-01).
+    blocks: Merge of the model (ADR-004 Zone 2 approval)
+    related: [C-SEC-01, E-SEC-03]
+  - id: SEC-G6
+    name: Embedding and vector-store release
+    risk: re-identification
+    trigger: Creating, re-embedding or exposing the transcript vector index to a new consumer.
+    reviewers: [Security lead, ML Engineering lead]
+    evidence_required: Inversion test result (C-SEC-02); confirmation embeddings are classed C3 and follow R-12.
+    blocks: Index exposure
+    related: [C-SEC-02, E-SEC-04, R-12]
+  - id: SEC-G7
+    name: De-identification claim
+    risk: re-identification
+    trigger: Treating any dataset as de-identified / anonymous (outside privacy law scope).
+    reviewers: [Privacy / Legal]
+    evidence_required: Technical measures, public commitment and contractual no-re-identification terms; SEC-G4 result.
+    blocks: Relabeling data to C1
+    related: [R-07, SEC-G4]
+  - id: SEC-G8
+    name: Consumer-health-data determination
+    risk: re-identification
+    trigger: Before collecting quiz answers or using health-inferable purchase categories in features, targeting or the assistant.
+    reviewers: [Privacy / Legal, Retention team lead]
+    evidence_required: Legal determination on A-REG-02; consent flow (P7) design.
+    blocks: Collection and any non-fulfillment use
+    related: [A-REG-02, P7, ABAC-03, OB-07, OB-08]

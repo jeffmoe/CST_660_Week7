@@ -41,6 +41,7 @@ DECISION_AREAS = (
     "Streaming vs micro-batch",
     "Agentic AI",
     "Cross-cutting baselines",
+    "Security and privacy",
 )
 OWN_TESTING_FLAG = "⚑ OWN TESTING"
 

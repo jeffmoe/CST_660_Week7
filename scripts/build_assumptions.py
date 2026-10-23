@@ -154,6 +154,7 @@ def render_register(meta: dict, a: dict[str, dict], proj: pd.DataFrame) -> str:
                 "Confidence": row["confidence"],
                 "Owner": row["owner"],
                 "Own testing?": "**YES**" if row["own_testing"] else "no",
+                "Jurisdiction assumption?": "**⚑ YES**" if row.get("jurisdiction_assumption") else "no",
             }
         )
     register = pd.DataFrame(rows)
@@ -192,6 +193,9 @@ def render_register(meta: dict, a: dict[str, dict], proj: pd.DataFrame) -> str:
     )
 
     flagged = register[register["Own testing?"] == "**YES**"][["ID", "Assumption", "Owner"]]
+    jurisdiction = register[register["Jurisdiction assumption?"] != "no"][
+        ["ID", "Assumption", "Low", "Base", "High", "Owner"]
+    ]
 
     return f"""# Assumptions Register — Subscription Health Data Product
 
@@ -226,6 +230,14 @@ Aurora's own data or workloads. Each maps to a claim in
 `evidence/own_testing_claims.csv`.
 
 {flagged.to_markdown(index=False)}
+
+## Jurisdiction assumptions (⚑ Legal must confirm)
+
+These set the regulatory scope. `scripts/build_security_matrix.py` resolves which
+regimes apply, and therefore which retention windows hold, from these values per
+scenario; changing one changes `docs/security_matrix.md`.
+
+{jurisdiction.to_markdown(index=False)}
 """
 
 

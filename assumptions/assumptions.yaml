@@ -336,6 +336,126 @@ assumptions:
     validation: Legal opinion on whether a processor DPA covers LLM inference, or whether consent must change.
     own_testing: false
 
+  # ------------------------------------------------------ regulatory scope
+  # `jurisdiction_assumption: true` marks a legal-scope guess that Legal must
+  # confirm. security/data_matrix.yaml resolves which regimes apply, and so
+  # which retention windows hold, from these values per scenario.
+  - id: A-REG-01
+    category: Regulatory scope
+    name: Subscriber jurisdictions served
+    unit: jurisdictions
+    low: US
+    base: US
+    high: US + EU/UK
+    basis: >-
+      Aurora ships to US addresses only today. High scenario assumes the
+      retail/marketplace launch in A-GRW-02 adds EU/UK shipping, which brings
+      GDPR / UK GDPR into scope through targeting of EU/UK residents.
+    confidence: Medium
+    owner: Legal / Privacy
+    validation: Confirm shipping countries and any EU/UK marketing with Growth; Legal applicability memo.
+    own_testing: false
+    jurisdiction_assumption: true
+
+  - id: A-REG-02
+    category: Regulatory scope
+    name: Health-data status of purchase history and wellness-quiz answers
+    unit: classification
+    low: not consumer health data
+    base: consumer health data
+    high: consumer health data
+    basis: >-
+      Supplement purchases and stated wellness goals can reveal or imply health
+      status. Washington's My Health My Data Act defines consumer health data
+      broadly and requires separate opt-in consent to collect and to share it.
+      Base treats this data as consumer health data until Legal says otherwise.
+    confidence: Low
+    owner: Legal / Privacy
+    validation: Legal determination on MHMDA (and similar state laws) applicability to SKU-level purchase data and quiz answers.
+    own_testing: false
+    jurisdiction_assumption: true
+
+  - id: A-REG-03
+    category: Regulatory scope
+    name: Primary data hosting region
+    unit: region
+    low: US
+    base: US
+    high: US
+    basis: Warehouse, orchestrator and vector store deployed in a US cloud region (ADR-001, ADR-002).
+    confidence: High
+    owner: Data Engineering
+    validation: Region recorded in infrastructure config and vendor contracts.
+    own_testing: false
+    jurisdiction_assumption: false
+
+  - id: A-REG-04
+    category: Regulatory scope
+    name: Access to subscriber data from outside the hosting region
+    unit: access pattern
+    low: none
+    base: unreviewed subprocessors
+    high: offshore support BPO with transcript access
+    basis: >-
+      Helpdesk, ESP and model-provider subprocessor locations have not been
+      reviewed; the support team may add an offshore BPO. Remote access from
+      another country is a cross-border transfer even if data stays in a US region.
+    confidence: Low
+    owner: Security lead
+    validation: Subprocessor inventory with processing locations; support staffing plan.
+    own_testing: false
+    jurisdiction_assumption: true
+
+  - id: A-REG-05
+    category: Regulatory scope
+    name: Payment card data handling
+    unit: PCI scope
+    low: processor-tokenized, no PAN stored
+    base: processor-tokenized, no PAN stored
+    high: processor-tokenized, no PAN stored
+    basis: >-
+      Checkout uses the payment processor's hosted fields; Aurora receives a
+      token, brand, last four digits and expiry only. Card numbers can still
+      appear in support transcripts typed by customers.
+    confidence: High
+    owner: Finance / Security lead
+    validation: PCI self-assessment questionnaire; transcript PAN scan (C-AI-02).
+    own_testing: false
+    jurisdiction_assumption: false
+
+  - id: A-REG-06
+    category: Regulatory scope
+    name: Sharing data with ad platforms (pixels, conversion APIs)
+    unit: practice
+    low: none
+    base: paid-social pixels and conversion API
+    high: paid-social pixels and conversion API
+    basis: >-
+      Paid acquisition drives growth to 250k. Sending identifiers or events to ad
+      platforms for cross-context behavioral advertising is "sharing" under
+      CCPA/CPRA and requires an opt-out, including honoring Global Privacy Control.
+    confidence: Medium
+    owner: Growth / Legal
+    validation: Tag audit of web/app; list of conversion-API destinations.
+    own_testing: false
+    jurisdiction_assumption: true
+
+  - id: A-REV-01
+    category: Regulatory scope
+    name: Average revenue per subscriber
+    unit: USD / subscriber / month
+    low: 30
+    base: 40
+    high: 50
+    basis: >-
+      Used to test the CCPA annual-revenue threshold ($26,625,000 from 2025) against
+      projected fiscal-year revenue, and in A-BUD-01.
+    confidence: Medium
+    owner: Finance
+    validation: Trailing 12-month subscription revenue / average active subscribers.
+    own_testing: false
+    jurisdiction_assumption: false
+
   # ---------------------------------------------------------------- budget
   - id: A-BUD-01
     category: Budget ceiling

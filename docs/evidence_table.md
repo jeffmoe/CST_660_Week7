@@ -24,6 +24,7 @@ and must be proven by Aurora's own testing before the corresponding ADR is accep
 | Streaming vs micro-batch |                  2 |               5 |                        1 |             1 |
 | Agentic AI               |                  2 |               8 |                        3 |             1 |
 | Cross-cutting baselines  |                  0 |               0 |                        0 |             1 |
+| Security and privacy     |                  1 |               4 |                        0 |             1 |
 
 ## Sources by decision area
 
@@ -106,6 +107,20 @@ and must be proven by Aurora's own testing before the corresponding ADR is accep
 | E-BAS-01 | own testing | ⚑ OWN TESTING | Aurora baseline measurement sprint: billing, product analytics, helpdesk, cloud billing |   2027 | planned (see C-BAS-01; C-BAS-02; C-BAS-03) | Replaces industry-typical placeholders in the assumptions register with measured Aurora values. | C-BAS-01, C-BAS-02, C-BAS-03 |
 
 **Cannot be settled externally:** C-BAS-01, C-BAS-02, C-BAS-03
+
+
+### Security and privacy
+
+| ID       | Type             | Flag          | Source                                                                                                                                                       |   Year | Locator                                    | Relevance                                                                                                                                  | Claims                       |
+|:---------|:-----------------|:--------------|:-------------------------------------------------------------------------------------------------------------------------------------------------------------|-------:|:-------------------------------------------|:-------------------------------------------------------------------------------------------------------------------------------------------|:-----------------------------|
+| E-SEC-01 | peer-reviewed    |               | Sweeney, "k-Anonymity: A Model for Protecting Privacy", Int. J. Uncertainty, Fuzziness and Knowledge-Based Systems 10(5)                                     |   2002 | doi:10.1142/S0218488502001648              | Defines k-anonymity over quasi-identifiers; basis for the k >= 10 small-cell rule on exports.                                              | C-SEC-01                     |
+| E-SEC-02 | peer-reviewed    |               | Narayanan and Shmatikov, "Robust De-anonymization of Large Sparse Datasets", IEEE Symposium on Security and Privacy                                          |   2008 | IEEE S&P 2008                              | Sparse behavioral records (ratings, purchases) re-identify people from a few data points; applies to SKU purchase history and clickstream. | C-SEC-01                     |
+| E-SEC-03 | peer-reviewed    |               | Rocher, Hendrickx, de Montjoye, "Estimating the success of re-identifications in incomplete datasets using generative models", Nature Communications 10:3069 |   2019 | doi:10.1038/s41467-019-10933-3             | Model estimates 99.98% of Americans re-identifiable from 15 demographic attributes; pseudonymous feature tables are not anonymous.         | C-SEC-01                     |
+| E-SEC-04 | peer-reviewed    |               | Morris, Kuleshov, Shmatikov, Rush, "Text Embeddings Reveal (Almost) As Much As Text", EMNLP                                                                  |   2023 | doi:10.18653/v1/2023.emnlp-main.765        | Inversion recovers 92% of 32-token inputs exactly and full names from clinical notes; embeddings must be classed like their source text.   | C-SEC-02                     |
+| E-SEC-05 | vendor marketing |               | Microsoft, "Presidio: Data Protection and De-identification SDK" documentation                                                                               |   2024 | microsoft.github.io/presidio               | Open-source PII detection/anonymization tooling a redaction pipeline could use; vendor states detection is not guaranteed complete.        | C-SEC-01, C-SEC-02           |
+| E-SEC-06 | own testing      | ⚑ OWN TESTING | Aurora privacy tests: re-identification on feature extracts, embedding inversion, deletion propagation                                                       |   2027 | planned (see C-SEC-01; C-SEC-02; C-SEC-03) | Re-identification risk, inversion risk and deletion reach depend on Aurora's actual columns, models and copies.                            | C-SEC-01, C-SEC-02, C-SEC-03 |
+
+**Cannot be settled externally:** C-SEC-01, C-SEC-02, C-SEC-03
 
 ## Claims requiring own testing
 
@@ -261,4 +276,34 @@ until the test runs and the result is recorded here.
 - **Related assumptions:** A-OPS-03
 - **Test method:** Compute the distribution of ingested_at minus event_time over 30 days of events by source.
 - **Pass threshold:** p99 lag <= A-OPS-03 base (3 days); otherwise widen the incremental lookback
+- **Status:** Open
+
+#### ⚑ OWN TESTING — C-SEC-01 (Security and privacy)
+
+**Claim:** Pseudonymous feature extracts and exports leaving the warehouse cannot be re-identified by linkage at the k >= 10 standard.
+
+- **Why external sources cannot settle it:** Re-identification risk depends on Aurora's exact quasi-identifier set (ZIP3, tenure, SKUs, cadence) and population; published results show risk is high in general but not for this table.
+- **Related assumptions:** A-REG-02
+- **Test method:** Compute equivalence-class sizes over declared quasi-identifiers for each export; attempt linkage of a feature extract to a held-out identified sample using SKU and date sequences.
+- **Pass threshold:** No equivalence class < 10; linkage attack re-identifies < 1% of a 1,000-subscriber sample
+- **Status:** Open
+
+#### ⚑ OWN TESTING — C-SEC-02 (Security and privacy)
+
+**Claim:** Stored transcript embeddings do not leak recoverable personal data beyond what the redacted text already contains.
+
+- **Why external sources cannot settle it:** Inversion success depends on the chosen embedding model, chunk size and Aurora's redaction quality.
+- **Related assumptions:** A-TRN-04, A-TRN-05
+- **Test method:** Run an open-source inversion attack against a sample of 500 stored embeddings; compare recovered text to the unredacted source for names, emails, addresses and health terms.
+- **Pass threshold:** No recovered direct identifier that the redaction step removed; otherwise embeddings stay C3 with no new consumers
+- **Status:** Open
+
+#### ⚑ OWN TESTING — C-SEC-03 (Security and privacy)
+
+**Claim:** A verified deletion request removes the subscriber from every copy (warehouse, features, transcripts, vector index, logs, backups) within 45 days.
+
+- **Why external sources cannot settle it:** Depends on Aurora's copies, time-travel/backup settings and vendor deletion APIs.
+- **Related assumptions:** A-STO-02
+- **Test method:** Seed 20 synthetic subscribers across all systems, file deletion requests, then search every store and backup after 45 days.
+- **Pass threshold:** 0 residual records in any store after 45 days; deletion_pending rows hidden within 24 h
 - **Status:** Open
