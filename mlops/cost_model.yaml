@@ -1,0 +1,71 @@
+# Cost-aware operating plan inputs. Usage and unit costs live in the
+# assumptions register (A-UC-*, A-LLM-*, A-BUD-*); volumes come from
+# assumptions/derived/projections.csv; the ingestion pattern comes from ADR-003.
+# Run:  python scripts/build_mlops.py
+meta:
+  version: "0.1.0"
+  last_reviewed: "2026-10-23"
+  headline_scenario: base   # month 12, ~250k subscribers
+  headline_month: 12
+  days_per_month: 30.4
+
+ingestion:
+  decided_in: ADR-003
+  pattern: micro-batch
+  # Landing cadence is read from the contract layer (aurora_contracts) and
+  # checked against this value so the cost plan cannot drift from ADR-003.
+  landing_minutes: 15
+  hourly_incremental_runs_per_day: 24
+  alternative:
+    pattern: streaming
+    replaces: [micro_batch_loads]
+    adds: A-UC-13
+
+# Anthropic first-party list prices, USD per million tokens, from the
+# claude-api pricing table cached 2026-10-06. Verify at the cost sign-off.
+price_book:
+  source: "Anthropic API list prices (claude-api skill pricing table, cached 2026-10-06)"
+  cache_write_multiplier: 1.25   # 5-minute TTL cache writes vs base input price
+  models:
+    claude-opus-5-5:   {input: 4.00, output: 20.00, cache_read: 0.20}
+    claude-sonnet-5-5: {input: 2.00, output: 10.00, cache_read: 0.20}
+
+llm:
+  cached_tokens_written_share: 0.05   # share of cacheable tokens re-written after TTL expiry
+  query_embedding_tokens_per_conversation: 150
+  reindex_full_corpus_per_year: 4     # chunking / redaction / embedding-model changes (SEC-G6)
+
+evaluation_workload:
+  # RAG evaluation method (mlops/ragops_plan.yaml): nightly smoke + weekly full suite.
+  smoke_questions_per_night: 50
+  full_suite_questions: 200
+  full_suite_trials: 4                # pass^k reliability, k = 4
+  full_suite_runs_per_month: 4.33
+  red_team_prompts_per_month: 150
+  judge_input_tokens: 3000
+  judge_output_tokens: 300
+
+# Each line item rolls up to an A-BUD-02 allocation key.
+components:
+  micro_batch_loads: warehouse_or_lakehouse_compute
+  hourly_incremental_models: warehouse_or_lakehouse_compute
+  nightly_build_and_scoring: warehouse_or_lakehouse_compute
+  dashboards_and_adhoc: warehouse_or_lakehouse_compute
+  churn_model_training: warehouse_or_lakehouse_compute
+  storage: storage
+  event_collection: ingestion_and_streaming
+  orchestrator: orchestration
+  assistant_inference: llm_inference_and_embeddings
+  rag_evaluation: llm_inference_and_embeddings
+  embeddings: llm_inference_and_embeddings
+  vector_store: vector_store
+  observability: observability_and_quality
+
+signoff:
+  gate: COST-G1 Cost estimate sign-off
+  blocks: Committing the A-BUD-02 allocation, vendor contracts, and scaling the assistant past the pilot
+  rows:
+    - {role: Finance (CFO delegate), name: "", decision: Pending, date: ""}
+    - {role: Head of Data, name: "", decision: Pending, date: ""}
+    - {role: Lead Analytics Engineer (owner), name: "", decision: Pending, date: ""}
+    - {role: ML Engineering lead, name: "", decision: Pending, date: ""}

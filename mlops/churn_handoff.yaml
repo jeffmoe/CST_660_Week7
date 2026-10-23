@@ -1,0 +1,56 @@
+# MLOps handoff checklist for the churn-risk model: what the analytics team
+# hands to the ML team (and back to the retention team) before the model
+# scores production subscribers. Blocking items must be Done before go-live.
+meta:
+  version: "0.1.0"
+  last_reviewed: "2026-10-23"
+  model: churn-risk v1
+  feature_contract: features.churn_features v1 (CON-ML)
+  scores_land_in: marts.retention_subscription_health_daily.churn_risk_score
+
+label_definition: >-
+  label_churned_30d = the subscription is cancelled (voluntary cancel or
+  involuntary cancel after failed-payment dunning) within 30 days after
+  feature_date. Pauses and skips are not churn. Labels are null until 30 days
+  have passed; involuntary churn is reported separately in monitoring.
+
+checklist:
+  - {id: H-01, area: Data and features, item: "Feature contract churn_features v1 signed by ML Engineering lead", owner: Lead Analytics Engineer, evidence: "docs/contract_layer.md CON-ML; build_contracts conformance", blocking: true}
+  - {id: H-02, area: Data and features, item: "Point-in-time correctness test: no feature uses data after feature_date", owner: Analytics Engineering, evidence: "dbt test replaying 30 random subscriber-days against raw events", blocking: true}
+  - {id: H-03, area: Data and features, item: "Label definition agreed and implemented (above), with leakage review of cancel-flow features", owner: ML Engineering lead, evidence: "Signed label spec; cancel_page_views_14d excluded from the final 24 h before cancel", blocking: true}
+  - {id: H-04, area: Data and features, item: "Training window matches resolved retention: 25 months under GDPR scope, 37 otherwise (R-15)", owner: ML Engineering, evidence: "docs/security_matrix.md R-15", blocking: true}
+  - {id: H-05, area: Data and features, item: "Consent exclusions applied to training and scoring (GR-FEA-05); no health-tagged features (ABAC-03, SEC-G8)", owner: Lead Analytics Engineer, evidence: "Contract rule results for the training snapshot", blocking: true}
+  - {id: H-06, area: Data and features, item: "Open-format training snapshot readable from the ML environment in < 15 min (C-WL-02)", owner: Data Engineering, evidence: "C-WL-02 result", blocking: true}
+  - {id: H-07, area: Model, item: "Time-based validation: train on months 1..n-2, validate n-1, test n; no random splits", owner: ML Engineering, evidence: "Experiment report", blocking: true}
+  - {id: H-08, area: Model, item: "Baseline logistic regression and candidate model compared on the same split; candidate must beat baseline", owner: ML Engineering, evidence: "Experiment report with KPI table", blocking: true}
+  - {id: H-09, area: Model, item: "Go-live KPI thresholds met on the test month (KPIs below)", owner: ML Engineering lead, evidence: "aurora_mlops.metrics.churn_model_kpis output", blocking: true}
+  - {id: H-10, area: Model, item: "Model card: intended use (prioritizing outreach), not for pricing or eligibility decisions, known limits", owner: ML Engineering lead, evidence: "Model card in registry", blocking: true}
+  - {id: H-11, area: Model, item: "Proxy review: score performance by plan, tenure band and state; no feature acts as a proxy for health data", owner: ML Engineering + Privacy officer, evidence: "Segment KPI table", blocking: true}
+  - {id: H-12, area: Pipeline, item: "Reproducible training: pinned code, library versions, data snapshot ID and random seed in the registry", owner: ML Engineering, evidence: "Registry entry", blocking: true}
+  - {id: H-13, area: Pipeline, item: "Scoring runs as an orchestrator asset downstream of the features asset check; blocked features block scoring (ADR-002)", owner: Data Engineering, evidence: "Asset graph", blocking: true}
+  - {id: H-14, area: Pipeline, item: "Rollback: previous model version can be re-promoted in one step; tested once", owner: ML Engineering, evidence: "Rollback drill log", blocking: true}
+  - {id: H-15, area: Pipeline, item: "Retraining cadence monthly, plus on drift trigger; champion/challenger comparison before promotion", owner: ML Engineering lead, evidence: "Runbook", blocking: false}
+  - {id: H-16, area: Monitoring, item: "Feature and score drift (PSI) computed nightly against the training reference", owner: ML Engineering, evidence: "aurora_mlops.drift output in monitoring", blocking: true}
+  - {id: H-17, area: Monitoring, item: "Performance monitored on matured labels (30-day lag) with alerts at the KPI floors", owner: ML Engineering, evidence: "Dashboard + alert config", blocking: true}
+  - {id: H-18, area: Monitoring, item: "10% randomized holdout from outreach to measure save-rate uplift", owner: Retention team lead, evidence: "Holdout assignment table", blocking: false}
+  - {id: H-19, area: Operations, item: "On-call ownership and runbook for missed scoring SLA (scores reuse previous day)", owner: Head of Data, evidence: "Runbook; CON-ML on_breach", blocking: true}
+  - {id: H-20, area: Governance, item: "Re-identification review of any feature or score export leaving the warehouse (SEC-G4, C-SEC-01)", owner: Privacy officer, evidence: "SEC-G4 record", blocking: true}
+  - {id: H-21, area: Governance, item: "DPIA for churn profiling if GDPR comes into scope (OB-13)", owner: Privacy officer, evidence: "DPIA or 'not in scope' note per A-REG-01", blocking: false}
+  - {id: H-22, area: Governance, item: "Agent-authored changes to stable feature fields need named ML lead approval (ADR-004 Zone 2)", owner: Lead Analytics Engineer, evidence: "Branch protection / CODEOWNERS", blocking: true}
+
+kpis:
+  - {name: Features ready by 07:00, type: SLA, target: ">= 99% of days per month", measure: "GR-FEA-04 freshness results", owner: Lead Analytics Engineer, basis: "A-OPS-02; CON-ML"}
+  - {name: Scores published by 07:30, type: SLA, target: ">= 99% of days per month", measure: "Scoring asset materialization time", owner: ML Engineering lead, basis: "Retention stand-up after 07:00"}
+  - {name: Scoring runtime, type: SLA, target: "p95 <= 30 min", measure: "Orchestrator run logs", owner: ML Engineering, basis: "Fits nightly window (C-OR-01)"}
+  - {name: ROC-AUC (matured labels), type: KPI, target: ">= 0.75 and no more than 0.03 below go-live", measure: "Rolling 30-day labeled cohort", owner: ML Engineering lead, basis: "Placeholder; set from the baseline in H-08"}
+  - {name: Lift in top decile, type: KPI, target: ">= 3.0", measure: "Churn rate in top 10% of scores / overall churn rate", owner: ML Engineering lead, basis: "Outreach capacity targets the top decile"}
+  - {name: Calibration error (ECE), type: KPI, target: "<= 0.05", measure: "10-bin expected calibration error", owner: ML Engineering, basis: "Risk bands are read as probabilities by the retention team"}
+  - {name: Feature / score drift (PSI), type: KPI, target: "< 0.10 ok; 0.10-0.25 investigate; >= 0.25 retrain review", measure: "Nightly PSI vs training reference", owner: ML Engineering, basis: "Common PSI bands"}
+  - {name: Save-rate uplift, type: Business KPI, target: "Positive and significant vs 10% holdout, reviewed quarterly", measure: "Churn in treated top-risk vs holdout top-risk", owner: Retention team lead, basis: "H-18"}
+  - {name: Monthly gross churn, type: Business KPI, target: "Tracked against A-GRW-04 (base 7%)", measure: "Billing cohort churn", owner: Retention team lead, basis: "A-GRW-04"}
+  - {name: Incident time to restore, type: SLA, target: "<= 1 business day", measure: "Incident log", owner: Head of Data, basis: "CON-ML on_breach"}
+
+go_live_thresholds:
+  roc_auc: {min: 0.75}
+  lift_top_decile: {min: 3.0}
+  ece: {max: 0.05}

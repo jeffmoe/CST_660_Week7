@@ -1,0 +1,95 @@
+# LLMOps / RAGOps plan for the support-transcript corpus behind the
+# retention-support assistant (ADR-004 Zone 1, contract CON-RAG).
+# Thresholds here are enforced by aurora_mlops.gates.release_gate.
+meta:
+  version: "0.1.0"
+  last_reviewed: "2026-10-23"
+  owner: ML Engineering lead
+  consumer_contract: CON-RAG
+  dataset_contract: rag.transcript_chunks
+  preconditions: [SEC-G3, SEC-G6, ADR-004 G0, ADR-004 G1]
+
+chunking:
+  implementation: aurora_mlops/chunking.py
+  unit: One redacted support ticket (helpdesk thread or voice transcript after redaction QA).
+  steps:
+    - Strip signatures, legal footers and auto-replies before splitting.
+    - Split on speaker turns (customer / agent / system) so a question and its answer stay together.
+    - Pack whole turns into chunks of at most 512 tokens (A-TRN-04); split a single over-long turn on sentence boundaries.
+    - Carry the last turn of the previous chunk as overlap (one turn, bounded by the 512-token cap).
+    - Fold a trailing chunk under 50 tokens into the previous chunk when it fits.
+    - Attach non-PII metadata for filtering, not for embedding - topic tags, ticket close date, product category.
+    - Deterministic chunk_id = hash(ticket_id, chunk_index, redaction_version), so re-runs are idempotent.
+  rationale:
+    - Answer quality drops when evidence is buried in long context, so retrieve a few tight chunks (top-k = 5) rather than whole tickets [E-AI-03].
+    - 512 is the base chunk size; 256 is the alternative tested in C-AI-01 and the winner is fixed at the evaluation sign-off.
+  token_counting: Approximate (4 chars/token) until the embedding model is chosen; then that model's tokenizer.
+
+refresh_cadence:
+  - {what: New chunks, cadence: "Nightly, tickets closed the previous day, published by 07:00 (A-OPS-02)", mechanism: "Incremental dbt model rag_transcript_chunks then index upsert, orchestrated as assets (ADR-002)", basis: "ADR-003 nightly batch; contract GR-RAG-04"}
+  - {what: Deletions (privacy requests), cadence: "Daily; removed from table and index within 24 h of deletion_pending", mechanism: "ABAC-06 filter + index delete by chunk_id", basis: "R-11, R-12, C-SEC-03 (45-day SLA end to end)"}
+  - {what: Retention expiry, cadence: Daily, mechanism: "Delete chunks and vectors past the resolved R-11 / R-12 window", basis: "Security matrix retention schedule"}
+  - {what: Full re-index, cadence: "On change of embedding model, chunking or redaction version (about quarterly)", mechanism: "Build a new index side by side, run the full evaluation suite, then swap the alias", basis: "SEC-G6 review; evaluation gate below"}
+  - {what: Index maintenance, cadence: Weekly, mechanism: "Compaction and count reconciliation (index count = published chunk count)", basis: "Retrieval-quality checks below"}
+
+evaluation:
+  summary: >-
+    Offline golden-set evaluation gates every release; online sampling watches
+    production. A change to the prompt, model, chunking, embedding model or
+    redaction version cannot ship unless every release threshold passes.
+  golden_set:
+    size: 200
+    source: Real retention-agent questions from the pilot, redacted.
+    labels: Gold chunk IDs and a reference answer per question, labeled by two retention staff; disagreements resolved by the retention team lead.
+    split: 160 development / 40 held-out test; the test split is only scored at release.
+    refresh: Quarterly, adding at least 25 questions from production misses and new topics flagged by drift detection.
+  judge:
+    method: LLM-as-judge on faithfulness and answer relevance, using the same model tier as the assistant.
+    calibration: Before use, the judge is scored against human labels on 100 answers; agreement must reach Cohen's kappa >= 0.7, rechecked each quarter.
+    basis: [E-AI-05]
+  suites:
+    - {name: Nightly smoke, questions: 50, when: Nightly after index refresh, blocks: "Index alias swap"}
+    - {name: Full suite, questions: 200, trials: 4, when: "Weekly and on every change", blocks: "Release"}
+    - {name: Red team, questions: 150, when: "Monthly and on every change", blocks: "Release"}
+  release_thresholds:
+    "recall@5": {min: 0.85, claim: C-AI-01}
+    "mrr@10": {min: 0.70}
+    "ndcg@10": {min: 0.75}
+    faithfulness: {min: 0.95, claim: C-AI-02}
+    answer_relevance: {min: 0.85}
+    citation_precision: {min: 0.90}
+    unsupported_policy_rate: {max: 0.01, claim: C-AI-02}
+    pii_leak_count: {max: 0}
+    "pass^4": {min: 0.80, claim: C-AI-03}
+    cost_per_conversation_usd: {max: 0.05, claim: C-AI-04}
+    p95_latency_s: {max: 4.0, claim: C-AI-04}
+  online:
+    - Weekly human review of 50 sampled conversations by the retention team lead, scored on the same rubric as the judge.
+    - Staff thumbs-up/down and "answer not used" rate tracked weekly.
+    - Weekly faithfulness sample below 0.95, or any confirmed PII leak, triggers the ADR-004 supersede rule (assistant off).
+  signoff:
+    gate: RAG-G1 RAG evaluation method sign-off
+    blocks: Assistant pilot with retention staff (ADR-004 G1) and every later release
+    rows:
+      - {role: ML Engineering lead (owner), name: "", decision: Pending, date: ""}
+      - {role: Retention team lead, name: "", decision: Pending, date: ""}
+      - {role: Privacy / Legal, name: "", decision: Pending, date: ""}
+      - {role: Lead Analytics Engineer, name: "", decision: Pending, date: ""}
+
+drift_detection:
+  implementation: aurora_mlops/drift.py
+  signals:
+    - {signal: Query topic mix, method: "Jensen-Shannon distance, this week's queries vs golden set topics", act_at: ">= 0.10", action: "Add new-topic questions to the golden set; rerun full suite"}
+    - {signal: Query embedding centroid, method: "Cosine distance between mean golden-set and mean weekly query embeddings", act_at: ">= 0.10", action: "Review sampled queries; expand golden set"}
+    - {signal: Corpus topic mix, method: "Jensen-Shannon distance, new chunks vs trailing 90 days", act_at: ">= 0.10", action: "Check for new products or policies missing from the corpus"}
+    - {signal: Top-1 retrieval similarity, method: "Two-sample KS test vs the release baseline plus median-drop guard", act_at: "p < 0.01 and median drop > 0.05", action: "Run full suite; consider re-index or chunk-size change"}
+    - {signal: No-good-match rate, method: "Share of queries with top-1 similarity under the release floor", act_at: ">= 15%", action: "Inspect queries; add content or golden-set coverage"}
+    - {signal: Answer quality, method: "Weekly judge faithfulness on 50 sampled conversations", act_at: "< 0.95", action: "ADR-004 supersede trigger: assistant back to off"}
+    - {signal: Model or provider change, method: "Pinned model ID; any change is a release", act_at: "Any change", action: "Full suite + red team before switching"}
+
+retrieval_quality_checks:
+  - {check: Contract checks before publish, when: Every nightly batch, detail: "GR-RAG-01..05: schema, nulls, PII scan, freshness, consent scope", on_fail: "Per contract failure behavior (quarantine / block / incident)"}
+  - {check: Index reconciliation, when: After every index refresh, detail: "Vector count equals published chunk count; no orphan vectors", on_fail: "Block alias swap; keep previous index"}
+  - {check: Deletion canary, when: Daily, detail: "Chunk IDs of deleted subscribers return no results", on_fail: "Security incident; purge and re-verify (C-SEC-03)"}
+  - {check: Canary queries, when: After every index refresh, detail: "20 fixed questions with known gold chunks; recall@5 >= 0.90", on_fail: "Roll back to previous index snapshot"}
+  - {check: Online retrieval health, when: Daily, detail: "Empty-retrieval rate, no-good-match rate, citation rate", on_fail: "Alert ML on-call; investigate per drift playbook"}

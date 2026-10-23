@@ -505,3 +505,252 @@ assumptions:
     owner: ML Engineering
     validation: Instrumented pilot with token logging (see C-AI-04).
     own_testing: true
+
+  # ------------------------------------------------- LLM usage (RAG assistant)
+  # Cost scenarios: high = costlier (more tokens, less caching).
+  - id: A-LLM-01
+    category: LLM usage
+    name: Assistant conversations per support contact
+    unit: conversations / contact
+    low: 0.5
+    base: 1.0
+    high: 1.5
+    basis: >-
+      Retention staff open the assistant for some contacts and several times for
+      others. Base keeps the one-per-contact rule used in the projections.
+    confidence: Low
+    owner: Retention team lead
+    validation: Assistant session logs during the pilot (C-AI-04).
+    own_testing: true
+
+  - id: A-LLM-02
+    category: LLM usage
+    name: Input tokens per assistant conversation
+    unit: tokens
+    low: 5000
+    base: 8000
+    high: 14000
+    basis: >-
+      System prompt (~1.5k) plus 5 retrieved chunks of up to 512 tokens (A-TRN-04)
+      per turn, about 2-3 turns with history resent each turn.
+    confidence: Low
+    owner: ML Engineering
+    validation: Token logging in the pilot (C-AI-04).
+    own_testing: true
+
+  - id: A-LLM-03
+    category: LLM usage
+    name: Output tokens per assistant conversation
+    unit: tokens
+    low: 600
+    base: 1000
+    high: 1800
+    basis: Draft answers and talk tracks across 2-3 turns, plus thinking tokens billed as output.
+    confidence: Low
+    owner: ML Engineering
+    validation: Token logging in the pilot (C-AI-04).
+    own_testing: true
+
+  - id: A-LLM-04
+    category: LLM usage
+    name: Share of input tokens served from prompt cache
+    unit: fraction
+    low: 0.5
+    base: 0.3
+    high: 0.1
+    basis: >-
+      The frozen system prompt and tool definitions are cacheable; retrieved
+      chunks and questions are not. Lower share = higher cost, so high is the low value.
+    confidence: Low
+    owner: ML Engineering
+    validation: usage.cache_read_input_tokens over the pilot.
+    own_testing: true
+
+  - id: A-LLM-05
+    category: LLM usage
+    name: Assistant model
+    unit: model
+    low: claude-sonnet-5-5
+    base: claude-opus-5-5
+    high: claude-opus-5-5
+    basis: >-
+      Provider is not chosen until SEC-G3 / ADR-004 G0. Priced on Claude Opus 5.5
+      (current default model) with Claude Sonnet 5.5 as the lower-cost option;
+      choosing the model is a decision for the cost sign-off, gated by the
+      evaluation thresholds (C-AI-01..04).
+    confidence: Low
+    owner: ML Engineering lead
+    validation: Run the RAG evaluation suite on each candidate model.
+    own_testing: true
+
+  # --------------------------------------------------------- unit costs
+  # Placeholders until vendor quotes arrive (ADR-001 G3, ADR-002 G4). Used
+  # only by the cost-aware operating plan (mlops/cost_model.yaml).
+  - id: A-UC-01
+    category: Unit costs
+    name: Warehouse compute price per smallest-size compute hour
+    unit: USD / compute-hour
+    low: 2.0
+    base: 3.0
+    high: 4.0
+    basis: Typical list-price range for the smallest managed-warehouse size; replaced by negotiated pricing after the ADR-001 PoC.
+    confidence: Low
+    owner: Finance (CFO delegate)
+    validation: Vendor quote (ADR-001 G3).
+    own_testing: false
+
+  - id: A-UC-02
+    category: Unit costs
+    name: Compute minutes per 15-minute micro-batch load
+    unit: minutes / load (smallest size)
+    low: 1
+    base: 2
+    high: 4
+    basis: Small append loads at month-12 volume; most warehouses bill a 60-second minimum per resume.
+    confidence: Low
+    owner: Data Engineering
+    validation: Load-job query history during the C-ST-02 replay.
+    own_testing: true
+
+  - id: A-UC-03
+    category: Unit costs
+    name: Compute minutes per hourly incremental dbt run
+    unit: minutes / run (smallest size)
+    low: 3
+    base: 5
+    high: 10
+    basis: Hourly marts over a 3-day lookback (A-OPS-03).
+    confidence: Low
+    owner: Analytics Engineering
+    validation: dbt run timings in the ADR-001 PoC.
+    own_testing: true
+
+  - id: A-UC-04
+    category: Unit costs
+    name: Nightly build compute (marts, features, chunks, scoring)
+    unit: compute-hours / night
+    low: 1
+    base: 3
+    high: 6
+    basis: Daily marts, churn features, transcript chunking and churn scoring on a mid-size warehouse.
+    confidence: Low
+    owner: Analytics Engineering
+    validation: Nightly job timings in the ADR-001 PoC (C-WL-01).
+    own_testing: true
+
+  - id: A-UC-05
+    category: Unit costs
+    name: Dashboard and ad-hoc query compute
+    unit: compute-hours / day
+    low: 4
+    base: 6
+    high: 10
+    basis: Smallest size with auto-suspend; heaviest around the 07:00 stand-up.
+    confidence: Low
+    owner: Analytics Engineering
+    validation: Warehouse metering during the ADR-001 PoC.
+    own_testing: true
+
+  - id: A-UC-06
+    category: Unit costs
+    name: Storage price
+    unit: USD / TB-month
+    low: 23
+    base: 25
+    high: 40
+    basis: Compressed warehouse/object storage list range.
+    confidence: Medium
+    owner: Finance (CFO delegate)
+    validation: Vendor quote.
+    own_testing: false
+
+  - id: A-UC-07
+    category: Unit costs
+    name: Managed event collection price
+    unit: USD / million events
+    low: 0.5
+    base: 1.0
+    high: 2.0
+    basis: Managed loader/collector per-event pricing range.
+    confidence: Low
+    owner: Data Engineering
+    validation: Vendor quote.
+    own_testing: false
+
+  - id: A-UC-08
+    category: Unit costs
+    name: Managed orchestrator subscription
+    unit: USD / month
+    low: 400
+    base: 800
+    high: 1500
+    basis: Managed asset-based orchestrator team plan plus usage (ADR-002).
+    confidence: Low
+    owner: Finance (CFO delegate)
+    validation: Vendor quote (ADR-002 G4).
+    own_testing: false
+
+  - id: A-UC-09
+    category: Unit costs
+    name: Embedding price
+    unit: USD / million tokens
+    low: 0.02
+    base: 0.10
+    high: 0.15
+    basis: Range of commercial embedding APIs; Anthropic does not sell embeddings, so this is a second provider subject to SEC-G3.
+    confidence: Low
+    owner: ML Engineering
+    validation: Vendor quote after embedding-model selection (C-AI-01).
+    own_testing: false
+
+  - id: A-UC-10
+    category: Unit costs
+    name: Vector store
+    unit: USD / month
+    low: 100
+    base: 200
+    high: 500
+    basis: Managed vector index for 0.4-1.8M vectors (2-20 GB, projections).
+    confidence: Low
+    owner: ML Engineering
+    validation: Vendor quote.
+    own_testing: false
+
+  - id: A-UC-11
+    category: Unit costs
+    name: Observability and data-quality tooling
+    unit: USD / month
+    low: 300
+    base: 600
+    high: 1000
+    basis: Alerting, logs and LLM tracing for the data product.
+    confidence: Low
+    owner: Data Engineering
+    validation: Vendor quote.
+    own_testing: false
+
+  - id: A-UC-12
+    category: Unit costs
+    name: Churn model training and experiment compute
+    unit: USD / month
+    low: 100
+    base: 250
+    high: 600
+    basis: Monthly retrain plus experiments on CPU (gradient-boosted trees on ~250k rows x 25 months).
+    confidence: Low
+    owner: ML Engineering lead
+    validation: Training job metering.
+    own_testing: false
+
+  - id: A-UC-13
+    category: Unit costs
+    name: Always-on streaming stack (ADR-003 Option A, for comparison only)
+    unit: USD / month
+    low: 1500
+    base: 2500
+    high: 4000
+    basis: Managed broker plus stream processor sized for ~435 events/s peak-day average, running 24/7.
+    confidence: Low
+    owner: Data Engineering
+    validation: Vendor quote if C-ST-01 reopens ADR-003.
+    own_testing: false

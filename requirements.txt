@@ -4,4 +4,6 @@ PyYAML>=6.0
 tabulate>=0.9
 pydantic>=2.6
 jsonschema>=4.20
+scikit-learn>=1.4
+scipy>=1.11
 pytest>=8.0

@@ -133,7 +133,7 @@ until the test runs and the result is recorded here.
 **Claim:** At Aurora's scale (<=1 TB stored, high scenario) the chosen platform serves retention dashboards at p95 < 5 s within its compute allocation.
 
 - **Why external sources cannot settle it:** Public benchmarks run TPC-DS at 1-100 TB with tuned configs and list prices; Aurora's query mix, concurrency and negotiated pricing are unique.
-- **Related assumptions:** A-STO-01, A-STO-03, A-BUD-01, A-BUD-02
+- **Related assumptions:** A-STO-01, A-STO-03, A-BUD-01, A-BUD-02, A-UC-03, A-UC-04, A-UC-05
 - **Test method:** Build the 3 core retention marts on synthetic data sized to the high scenario on 2 shortlisted platforms; replay 2 weeks of dashboard query logs; record p95 latency, credits/DBUs and stored bytes.
 - **Pass threshold:** p95 < 5 s at 20 concurrent users; projected compute <= 50% of A-BUD-01 base; measured compression within A-STO-01 range
 - **Status:** Open
@@ -193,7 +193,7 @@ until the test runs and the result is recorded here.
 **Claim:** Micro-batch at 15-minute cadence absorbs high-scenario peak-day load within the ingestion budget.
 
 - **Why external sources cannot settle it:** Burst shape on Aurora promo days and per-batch platform cost are workload-specific.
-- **Related assumptions:** A-EVT-02, A-EVT-04, A-EVT-05, A-BUD-02
+- **Related assumptions:** A-EVT-02, A-EVT-04, A-EVT-05, A-BUD-02, A-UC-02
 - **Test method:** Replay last BFCM clickstream scaled to the high scenario (~37.6M events/day) through the micro-batch pipeline; record end-to-end lag and cost.
 - **Pass threshold:** p95 end-to-end lag < 20 min on peak day; ingestion spend <= A-BUD-02 ingestion allocation
 - **Status:** Open
@@ -233,7 +233,7 @@ until the test runs and the result is recorded here.
 **Claim:** Cost per assistant conversation stays at or below the A-BUD-03 base value at acceptable latency.
 
 - **Why external sources cannot settle it:** Token usage per conversation depends on Aurora's transcripts, prompts and model choice; vendor price sheets give rates, not usage.
-- **Related assumptions:** A-BUD-03, A-BUD-02
+- **Related assumptions:** A-BUD-03, A-BUD-02, A-LLM-01, A-LLM-02, A-LLM-03, A-LLM-04, A-LLM-05
 - **Test method:** Two-week pilot with 10 retention agents; log tokens, cache hits, latency and cost per conversation.
 - **Pass threshold:** Mean cost <= $0.05 per conversation; p95 latency <= 4 s
 - **Status:** Open
