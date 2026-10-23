@@ -15,8 +15,6 @@ Every decision, rule and number in the repository traces back to one assumptions
 and one evidence table. Every document under `docs/` is generated from source files and
 checked by a script, so the parts cannot quietly drift apart.
 
-> **Reading time:** about 8–10 minutes. Each section ends with links to the full documents.
-
 ---
 
 ## At a glance
@@ -306,15 +304,14 @@ Every file in `docs/` is generated. Edit the source (`assumptions/`, `evidence/`
 
 ## AI assistance disclosure
 
-This data product was developed **with the assistance of AI**. Anthropic's Claude, used
-through Claude Code, helped draft the documents, ADRs, YAML specifications, Python code, tests
-and this README, and helped find and check sources. The author set the scope and requirements
+This data product was developed **with the assistance of AI**. 
+The author set the scope and requirements
 for each deliverable and is responsible for the final content.
 
 Things to keep in mind when relying on this material:
 
 - **Citations.** Some sources in the evidence table were confirmed by web search during
-  drafting; others came from the model's own knowledge and should be spot-checked before
+  drafting; should be spot-checked before
   external use.
 - **Legal mapping.** The regulatory mapping is not legal advice and needs review by Legal.
 - **Numbers.** Cost figures use list prices and placeholder unit costs. Synthetic-data results
