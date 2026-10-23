@@ -272,6 +272,70 @@ assumptions:
     validation: Inspect index size after backfill load.
     own_testing: false
 
+  # ------------------------------------------------- team and operations
+  - id: A-OPS-01
+    category: Team and operations
+    name: Data team size (analytics + data + ML engineers)
+    unit: FTE
+    low: 3
+    base: 4
+    high: 5
+    basis: >-
+      Headcount stays roughly flat while subscribers grow ~6x; no dedicated
+      platform/SRE engineer. Drives the weight given to operational burden.
+    confidence: Medium
+    owner: Head of Data
+    validation: Confirm approved headcount plan with Finance.
+    own_testing: false
+
+  - id: A-OPS-02
+    category: Team and operations
+    name: Daily freshness SLA for retention marts and churn features
+    unit: local time
+    low: "08:00"
+    base: "07:00"
+    high: "06:00"
+    basis: >-
+      Retention team's morning stand-up works the at-risk list; the churn model
+      scores nightly. No current consumer has an intraday requirement on record.
+    confidence: Medium
+    owner: Retention team lead
+    validation: Written SLA agreed with retention and ML leads.
+    own_testing: false
+
+  - id: A-OPS-03
+    category: Team and operations
+    name: Late-arriving event window
+    unit: days
+    low: 1
+    base: 3
+    high: 7
+    basis: >-
+      Mobile offline events, payment-processor retries and webhook redelivery
+      arrive after the event date; incremental models must reprocess this window.
+    confidence: Low
+    owner: Data Engineering
+    validation: Distribution of (ingested_at - event_time) over 30 days of events.
+    own_testing: true
+
+  # ---------------------------------------------------------- governance
+  - id: A-GOV-01
+    category: Governance
+    name: Consent scope for subscriber data
+    unit: policy
+    low: fulfillment + service communications only
+    base: fulfillment + service communications only
+    high: fulfillment + service communications only
+    basis: >-
+      Current consent language covers order fulfillment and service
+      communications and says nothing about third-party processing. Sending
+      subscriber data or transcripts to an external model provider is therefore
+      unconfirmed until Legal reviews it.
+    confidence: High
+    owner: Legal / Privacy
+    validation: Legal opinion on whether a processor DPA covers LLM inference, or whether consent must change.
+    own_testing: false
+
   # ---------------------------------------------------------------- budget
   - id: A-BUD-01
     category: Budget ceiling

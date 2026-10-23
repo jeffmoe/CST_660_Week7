@@ -22,7 +22,7 @@ and must be proven by Aurora's own testing before the corresponding ADR is accep
 | Warehouse vs lakehouse   |                  2 |               5 |                        2 |             1 |
 | Orchestration            |                  2 |               3 |                        1 |             1 |
 | Streaming vs micro-batch |                  2 |               5 |                        1 |             1 |
-| Agentic AI               |                  1 |               6 |                        2 |             1 |
+| Agentic AI               |                  2 |               8 |                        3 |             1 |
 | Cross-cutting baselines  |                  0 |               0 |                        0 |             1 |
 
 ## Sources by decision area
@@ -79,29 +79,33 @@ and must be proven by Aurora's own testing before the corresponding ADR is accep
 
 ### Agentic AI
 
-| ID      | Type                   | Flag          | Source                                                                                                                  |   Year | Locator                                          | Relevance                                                                                                                           | Claims                             |
-|:--------|:-----------------------|:--------------|:------------------------------------------------------------------------------------------------------------------------|-------:|:-------------------------------------------------|:------------------------------------------------------------------------------------------------------------------------------------|:-----------------------------------|
-| E-AI-01 | peer-reviewed          |               | Lewis et al., "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks", NeurIPS                               |   2020 | NeurIPS 2020 proceedings (arXiv:2005.11401)      | Origin of the RAG pattern underpinning the retention-support assistant.                                                             | C-AI-01, C-AI-02                   |
-| E-AI-02 | peer-reviewed          |               | Shuster et al., "Retrieval Augmentation Reduces Hallucination in Conversation", Findings of EMNLP                       |   2021 | aclanthology.org/2021.findings-emnlp.320         | Evidence that grounding on retrieved text reduces fabricated statements in dialogue, the main risk for a customer-facing assistant. | C-AI-02                            |
-| E-AI-03 | peer-reviewed          |               | Liu et al., "Lost in the Middle: How Language Models Use Long Contexts", TACL                                           |   2024 | TACL vol. 12 (arXiv:2307.03172)                  | Shows answer quality depends on where evidence sits in context; argues for tight top-k retrieval over stuffing transcripts.         | C-AI-01                            |
-| E-AI-04 | peer-reviewed          |               | Yao et al., "ReAct: Synergizing Reasoning and Acting in Language Models", ICLR                                          |   2023 | ICLR 2023 (arXiv:2210.03629)                     | Basis for tool-using agent loops; the agentic option would extend RAG with account lookups and offer actions.                       | C-AI-03                            |
-| E-AI-05 | peer-reviewed          |               | Es, James, Espinosa-Anke, Schockaert, "RAGAS: Automated Evaluation of Retrieval Augmented Generation", EACL (demo)      |   2024 | EACL 2024 (arXiv:2309.15217)                     | Provides faithfulness and context-relevance metrics Aurora can use in its own evaluation harness.                                   | C-AI-01, C-AI-02                   |
-| E-AI-06 | peer-reviewed          |               | Muennighoff, Tazi, Magne, Reimers, "MTEB: Massive Text Embedding Benchmark", EACL                                       |   2023 | EACL 2023 (arXiv:2210.07316)                     | Shortlists embedding models; general-domain rankings may not hold on support-ticket language.                                       | C-AI-01                            |
-| E-AI-07 | practitioner benchmark |               | Yao, Shinn, Razavi, Narasimhan, "tau-bench: A Benchmark for Tool-Agent-User Interaction in Real-World Domains" (Sierra) |   2024 | arXiv:2406.12045                                 | Customer-service agent benchmark (retail, airline) with pass^k reliability; shows agents are inconsistent across repeated trials.   | C-AI-03                            |
-| E-AI-08 | practitioner benchmark |               | Kapoor, Stroebl, Siegel, Nadgir, Narayanan, "AI Agents That Matter"                                                     |   2024 | arXiv:2407.01502                                 | Shows many agent benchmarks ignore cost; supports evaluating accuracy and cost jointly before choosing agentic over workflow.       | C-AI-03, C-AI-04                   |
-| E-AI-09 | vendor marketing       |               | Anthropic, "Building Effective Agents"                                                                                  |   2024 | anthropic.com/engineering (Dec 2024)             | Model vendor recommends starting with simple workflows and adding agent autonomy only when it measurably helps.                     | C-AI-03                            |
-| E-AI-10 | own testing            | ⚑ OWN TESTING | Aurora eval harness: labeled retention questions, red-team set, cost/latency pilot                                      |   2027 | planned (see C-AI-01; C-AI-02; C-AI-03; C-AI-04) | Retrieval quality, hallucination rate, PII leakage and cost must be measured on Aurora transcripts and policies.                    | C-AI-01, C-AI-02, C-AI-03, C-AI-04 |
+| ID      | Type                   | Flag          | Source                                                                                                                                                                      |   Year | Locator                                                   | Relevance                                                                                                                                | Claims                                      |
+|:--------|:-----------------------|:--------------|:----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------:|:----------------------------------------------------------|:-----------------------------------------------------------------------------------------------------------------------------------------|:--------------------------------------------|
+| E-AI-01 | peer-reviewed          |               | Lewis et al., "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks", NeurIPS                                                                                   |   2020 | NeurIPS 2020 proceedings (arXiv:2005.11401)               | Origin of the RAG pattern underpinning the retention-support assistant.                                                                  | C-AI-01, C-AI-02                            |
+| E-AI-02 | peer-reviewed          |               | Shuster et al., "Retrieval Augmentation Reduces Hallucination in Conversation", Findings of EMNLP                                                                           |   2021 | aclanthology.org/2021.findings-emnlp.320                  | Evidence that grounding on retrieved text reduces fabricated statements in dialogue, the main risk for a customer-facing assistant.      | C-AI-02                                     |
+| E-AI-03 | peer-reviewed          |               | Liu et al., "Lost in the Middle: How Language Models Use Long Contexts", TACL                                                                                               |   2024 | TACL vol. 12 (arXiv:2307.03172)                           | Shows answer quality depends on where evidence sits in context; argues for tight top-k retrieval over stuffing transcripts.              | C-AI-01                                     |
+| E-AI-04 | peer-reviewed          |               | Yao et al., "ReAct: Synergizing Reasoning and Acting in Language Models", ICLR                                                                                              |   2023 | ICLR 2023 (arXiv:2210.03629)                              | Basis for tool-using agent loops; the agentic option would extend RAG with account lookups and offer actions.                            | C-AI-03                                     |
+| E-AI-05 | peer-reviewed          |               | Es, James, Espinosa-Anke, Schockaert, "RAGAS: Automated Evaluation of Retrieval Augmented Generation", EACL (demo)                                                          |   2024 | EACL 2024 (arXiv:2309.15217)                              | Provides faithfulness and context-relevance metrics Aurora can use in its own evaluation harness.                                        | C-AI-01, C-AI-02                            |
+| E-AI-06 | peer-reviewed          |               | Muennighoff, Tazi, Magne, Reimers, "MTEB: Massive Text Embedding Benchmark", EACL                                                                                           |   2023 | EACL 2023 (arXiv:2210.07316)                              | Shortlists embedding models; general-domain rankings may not hold on support-ticket language.                                            | C-AI-01                                     |
+| E-AI-07 | practitioner benchmark |               | Yao, Shinn, Razavi, Narasimhan, "tau-bench: A Benchmark for Tool-Agent-User Interaction in Real-World Domains" (Sierra)                                                     |   2024 | arXiv:2406.12045                                          | Customer-service agent benchmark (retail, airline) with pass^k reliability; shows agents are inconsistent across repeated trials.        | C-AI-03                                     |
+| E-AI-08 | practitioner benchmark |               | Kapoor, Stroebl, Siegel, Nadgir, Narayanan, "AI Agents That Matter"                                                                                                         |   2024 | arXiv:2407.01502                                          | Shows many agent benchmarks ignore cost; supports evaluating accuracy and cost jointly before choosing agentic over workflow.            | C-AI-03, C-AI-04                            |
+| E-AI-09 | vendor marketing       |               | Anthropic, "Building Effective Agents"                                                                                                                                      |   2024 | anthropic.com/engineering (Dec 2024)                      | Model vendor recommends starting with simple workflows and adding agent autonomy only when it measurably helps.                          | C-AI-03                                     |
+| E-AI-10 | own testing            | ⚑ OWN TESTING | Aurora eval harness: labeled retention questions, red-team set, cost/latency pilot, agent-PR shadow pilot                                                                   |   2027 | planned (see C-AI-01; C-AI-02; C-AI-03; C-AI-04; C-AI-05) | Retrieval quality, hallucination rate, PII leakage and cost must be measured on Aurora transcripts and policies.                         | C-AI-01, C-AI-02, C-AI-03, C-AI-04, C-AI-05 |
+| E-AI-11 | peer-reviewed          |               | Brown, Roman, Devereux, "A Systematic Literature Review of Retrieval-Augmented Generation: Techniques, Metrics, and Challenges", Big Data and Cognitive Computing 9(12):320 |   2025 | BDCC 9(12):320 (arXiv:2508.06401)                         | PRISMA review of 128 RAG studies; agentic controllers are harder to debug and errors cascade, which supports gates rather than autonomy. | C-AI-02, C-AI-03                            |
+| E-AI-12 | peer-reviewed          |               | Jimenez et al., "SWE-bench: Can Language Models Resolve Real-World GitHub Issues?", ICLR                                                                                    |   2024 | ICLR 2024 (arXiv:2310.06770)                              | Agents resolve some real repository issues, but on Python projects, not dbt/SQL with incremental and late-data semantics.                | C-AI-05                                     |
+| E-AI-13 | practitioner benchmark |               | Becker, Rush, Barnes, Rein (METR), "Measuring the Impact of Early-2025 AI on Experienced Open-Source Developer Productivity"                                                |   2025 | arXiv:2507.09089                                          | RCT: experienced developers were 19% slower with AI tools while believing they were faster; perceived productivity is not evidence.      | C-AI-05                                     |
+| E-AI-14 | vendor marketing       |               | GitHub, "Research: quantifying GitHub Copilot's impact on developer productivity and happiness"                                                                             |   2022 | github.blog (Sep 2022)                                    | Self-reported satisfaction and speed from the tool vendor; shows the idea is worth piloting, not that it pays off for Aurora.            | C-AI-05                                     |
 
-**Cannot be settled externally:** C-AI-01, C-AI-02, C-AI-03, C-AI-04
+**Cannot be settled externally:** C-AI-01, C-AI-02, C-AI-03, C-AI-04, C-AI-05
 
 
 ### Cross-cutting baselines
 
-| ID       | Type        | Flag          | Source                                                                                  |   Year | Locator                          | Relevance                                                                                       | Claims             |
-|:---------|:------------|:--------------|:----------------------------------------------------------------------------------------|-------:|:---------------------------------|:------------------------------------------------------------------------------------------------|:-------------------|
-| E-BAS-01 | own testing | ⚑ OWN TESTING | Aurora baseline measurement sprint: billing, product analytics, helpdesk, cloud billing |   2027 | planned (see C-BAS-01; C-BAS-02) | Replaces industry-typical placeholders in the assumptions register with measured Aurora values. | C-BAS-01, C-BAS-02 |
+| ID       | Type        | Flag          | Source                                                                                  |   Year | Locator                                    | Relevance                                                                                       | Claims                       |
+|:---------|:------------|:--------------|:----------------------------------------------------------------------------------------|-------:|:-------------------------------------------|:------------------------------------------------------------------------------------------------|:-----------------------------|
+| E-BAS-01 | own testing | ⚑ OWN TESTING | Aurora baseline measurement sprint: billing, product analytics, helpdesk, cloud billing |   2027 | planned (see C-BAS-01; C-BAS-02; C-BAS-03) | Replaces industry-typical placeholders in the assumptions register with measured Aurora values. | C-BAS-01, C-BAS-02, C-BAS-03 |
 
-**Cannot be settled externally:** C-BAS-01, C-BAS-02
+**Cannot be settled externally:** C-BAS-01, C-BAS-02, C-BAS-03
 
 ## Claims requiring own testing
 
@@ -219,6 +223,16 @@ until the test runs and the result is recorded here.
 - **Pass threshold:** Mean cost <= $0.05 per conversation; p95 latency <= 4 s
 - **Status:** Open
 
+#### ⚑ OWN TESTING — C-AI-05 (Agentic AI)
+
+**Claim:** Human reviewers reliably catch the plausible-but-wrong bugs that agent-authored transformation PRs introduce.
+
+- **Why external sources cannot settle it:** Depends on Aurora's reviewers, review load, dbt project and policy tests; public agent benchmarks use Python issues, not SQL with incremental semantics.
+- **Related assumptions:** A-OPS-01, A-OPS-03
+- **Test method:** 4-week shadow pilot on synthetic subscription data: agent opens PRs; 5 seeded bugs (late-event double-count, new subscription_status level, PII column exposure, PK change, broken point-in-time join) are hidden among routine PRs; track catch rate and review minutes.
+- **Pass threshold:** >= 4 of 5 seeded bugs caught before staging merge; added review time <= 4 h per engineer per week
+- **Status:** Open
+
 #### ⚑ OWN TESTING — C-BAS-01 (Cross-cutting baselines)
 
 **Claim:** Planning placeholders for churn, engagement and transcript length are within the register's low-high ranges.
@@ -237,4 +251,14 @@ until the test runs and the result is recorded here.
 - **Related assumptions:** A-BUD-01, A-BUD-02
 - **Test method:** Tag all data-platform resources by component; review 90 days of billing against allocation.
 - **Pass threshold:** No component > 125% of its allocation; total run-rate <= A-BUD-01 base
+- **Status:** Open
+
+#### ⚑ OWN TESTING — C-BAS-03 (Cross-cutting baselines)
+
+**Claim:** Late-arriving events fall within the register's reprocessing window.
+
+- **Why external sources cannot settle it:** Arrival lag depends on Aurora's apps, payment processor and webhook providers.
+- **Related assumptions:** A-OPS-03
+- **Test method:** Compute the distribution of ingested_at minus event_time over 30 days of events by source.
+- **Pass threshold:** p99 lag <= A-OPS-03 base (3 days); otherwise widen the incremental lookback
 - **Status:** Open
