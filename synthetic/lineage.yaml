@@ -1,0 +1,100 @@
+# Field-level lineage for every column of every contract dataset.
+# sources: <system>.<table>.<field> (a source-system table written by the
+#   generator under synthetic/data/sources/) or <dataset>.<column> (an upstream
+#   contract dataset). "system" marks values stamped by the platform itself.
+# implemented_in: the function in aurora_synthetic that produces the field, and
+#   the dbt model / loader that will produce it in production (per the contract).
+# scripts/validate_synthetic.py fails if any contract column is missing here or
+# any source reference does not exist.
+source_systems:
+  producers.events: Web/app SDK, billing webhooks, subscription-platform webhooks, ESP/SMS webhooks (producer payloads, event contract v1)
+  subscription_platform.subscribers: Subscription platform customer profile (PII-SUB-01, PII-SUB-02)
+  commerce.orders: Commerce order lines (PII-SUB-04)
+  billing.payments: Payment processor charge attempts (PII-BIL-03, PII-BIL-04)
+  consent.ledger: Consent management platform current state (PII-SUB-08)
+  helpdesk.tickets: Helpdesk tickets and raw transcripts (PII-TRN-01)
+
+datasets:
+  raw.subscription_events:
+    produced_by: "collector:managed_event_loader"
+    implemented_in: aurora_synthetic.transform.build_raw
+    columns:
+      event_id: {sources: [producers.events.event_id], transform: "Pass-through; producer UUIDv4, idempotency key"}
+      event_type: {sources: [producers.events.event_type], transform: "Pass-through; validated against the producer JSON Schema"}
+      source: {sources: [producers.events.source], transform: "Pass-through"}
+      event_time: {sources: [producers.events.event_time], transform: "Parsed to UTC timestamp"}
+      ingested_at: {sources: [system], transform: "Stamped by the micro-batch loader at landing (ADR-003); not accepted from producers"}
+      subscriber_id: {sources: [producers.events.subscriber_id], transform: "Pass-through surrogate key; null for anonymous traffic"}
+      anonymous_id: {sources: [producers.events.anonymous_id], transform: "Pass-through (raw, C3); hashed in staging"}
+      ip_address: {sources: [producers.events.ip_address], transform: "Pass-through (raw, C3); dropped in staging (R-06)"}
+      user_agent: {sources: [producers.events.user_agent], transform: "Pass-through (raw, C3)"}
+      properties: {sources: [producers.events.properties], transform: "JSON payload stored as text; DLP-scanned (GR-EVT-04)"}
+
+  features.churn_features:
+    produced_by: "dbt:churn_features_v1"
+    implemented_in: aurora_synthetic.transform.feature_rows / build_features
+    columns:
+      subscriber_id: {sources: [subscription_platform.subscribers.subscriber_id], transform: "One row per subscriber started on or before feature_date and not cancelled by it"}
+      feature_date: {sources: [system], transform: "Weekly as-of dates ending yesterday; all windows close at end of this local date"}
+      tenure_days: {sources: [subscription_platform.subscribers.created_at], transform: "feature_date - created date"}
+      plan_interval: {sources: [subscription_platform.subscribers.plan_interval], transform: "Pass-through"}
+      subscription_status: {sources: [raw.subscription_events.event_type, raw.subscription_events.event_time], transform: "Cancelled / paused (pause without resume in 28 d) / past_due (failed payment and no success in 7 d) / active; cancelled rows excluded"}
+      orders_90d: {sources: [raw.subscription_events.event_type], transform: "Count of payment_succeeded in trailing 90 days"}
+      skips_90d: {sources: [raw.subscription_events.event_type], transform: "Count of subscription_skipped in trailing 90 days"}
+      pauses_180d: {sources: [raw.subscription_events.event_type], transform: "Count of subscription_paused in trailing 180 days"}
+      failed_payments_30d: {sources: [raw.subscription_events.event_type], transform: "Count of payment_failed in trailing 30 days"}
+      sessions_30d: {sources: [raw.subscription_events.source, raw.subscription_events.event_time], transform: "Distinct local days with web/app events in trailing 30 days"}
+      cancel_page_views_14d: {sources: [raw.subscription_events.event_type], transform: "Count of cancel_page_view in trailing 14 days"}
+      email_open_rate_30d: {sources: [raw.subscription_events.event_type], transform: "email_opened / email_sent in trailing 30 days, capped at 1; null with no sends"}
+      support_contacts_90d: {sources: [helpdesk.tickets.opened_at, helpdesk.tickets.subscriber_id], transform: "Tickets opened in trailing 90 days"}
+      days_since_last_order: {sources: [raw.subscription_events.event_type, raw.subscription_events.event_time], transform: "feature_date - last payment_succeeded date; null if none"}
+      label_churned_30d: {sources: [raw.subscription_events.event_type, raw.subscription_events.event_time], transform: "subscription_cancelled (voluntary or dunning) in (feature_date, feature_date + 30]; null until 30 days have passed"}
+      feature_version: {sources: [system], transform: "Constant from the dbt model version"}
+      _loaded_at: {sources: [system], transform: "Publish time of the nightly build"}
+    notes: >-
+      Every event-derived window uses incremental availability: an event counts for
+      partition d only if ingested by d's last rebuild (d + 1 + A-OPS-03 days, 05:00).
+
+  marts.retention_subscription_health_daily:
+    produced_by: "dbt:retention_subscription_health_daily"
+    implemented_in: aurora_synthetic.transform.build_mart
+    columns:
+      subscriber_id: {sources: [subscription_platform.subscribers.subscriber_id], transform: "Started subscribers, not cancelled, or cancelled within 30 days of as_of_date"}
+      as_of_date: {sources: [system], transform: "Daily partitions for the last 14 days"}
+      plan_interval: {sources: [subscription_platform.subscribers.plan_interval], transform: "Pass-through"}
+      subscription_status: {sources: [raw.subscription_events.event_type, raw.subscription_events.event_time], transform: "Same derivation as features, including cancelled"}
+      tenure_days: {sources: [subscription_platform.subscribers.created_at], transform: "as_of_date - created date"}
+      days_since_last_order: {sources: [features.churn_features.days_since_last_order], transform: "Same derivation as the feature, at as_of_date"}
+      skips_90d: {sources: [features.churn_features.skips_90d], transform: "Same derivation as the feature, at as_of_date"}
+      failed_payments_30d: {sources: [features.churn_features.failed_payments_30d], transform: "Same derivation as the feature, at as_of_date"}
+      cancel_page_views_14d: {sources: [features.churn_features.cancel_page_views_14d], transform: "Same derivation as the feature, at as_of_date"}
+      churn_risk_score: {sources: [features.churn_features.tenure_days, features.churn_features.label_churned_30d], transform: "Churn model (logistic regression trained on matured features) scored on as_of_date features; null for cancelled"}
+      churn_risk_band: {sources: [marts.retention_subscription_health_daily.churn_risk_score], transform: "low < 0.3 <= medium < 0.6 <= high"}
+      ship_state: {sources: [subscription_platform.subscribers.ship_state], transform: "State only; street, city and ZIP never leave staging"}
+      _loaded_at: {sources: [system], transform: "Publish time of the partition's nightly build"}
+
+  marts.retention_events_hourly:
+    produced_by: "dbt:retention_events_hourly"
+    implemented_in: aurora_synthetic.transform.build_hourly
+    columns:
+      event_hour: {sources: [raw.subscription_events.event_time], transform: "UTC hour floor, last 7 days"}
+      event_type: {sources: [raw.subscription_events.event_type], transform: "Lifecycle event types only"}
+      ship_state: {sources: [subscription_platform.subscribers.ship_state], transform: "State, or 'suppressed' when the cell has < 10 subscribers (ABAC-08)"}
+      subscriber_count: {sources: [raw.subscription_events.subscriber_id], transform: "Distinct subscribers; cells still under 10 after roll-up are dropped"}
+      event_count: {sources: [raw.subscription_events.event_id], transform: "Distinct events"}
+      _loaded_at: {sources: [system], transform: "Publish time of the hourly build"}
+
+  rag.transcript_chunks:
+    produced_by: "dbt:rag_transcript_chunks"
+    implemented_in: aurora_synthetic.transform.build_chunks (redact + aurora_mlops.chunking.chunk_transcript)
+    columns:
+      chunk_id: {sources: [helpdesk.tickets.ticket_id], transform: "sha256(ticket_id | chunk_index | redaction_version)[:32]"}
+      ticket_id: {sources: [helpdesk.tickets.ticket_id], transform: "Pass-through"}
+      subscriber_id: {sources: [helpdesk.tickets.subscriber_id], transform: "Pass-through surrogate key (consent and deletion only)"}
+      chunk_index: {sources: [helpdesk.tickets.transcript_raw], transform: "Position of the chunk within the ticket"}
+      chunk_text_redacted: {sources: [helpdesk.tickets.transcript_raw, subscription_platform.subscribers.email, subscription_platform.subscribers.first_name, subscription_platform.subscribers.last_name, subscription_platform.subscribers.phone], transform: "Redactor r1 (profile values, phones, grouped card numbers), boilerplate stripped, turn-aware chunks <= 512 tokens with one-turn overlap"}
+      token_count: {sources: [rag.transcript_chunks.chunk_text_redacted], transform: "Approximate tokens (4 chars/token) until the embedding tokenizer is chosen"}
+      topic_tags: {sources: [helpdesk.tickets.topic], transform: "Ticket topic as a one-element array"}
+      ticket_closed_at: {sources: [helpdesk.tickets.closed_at], transform: "UTC; retention clock for R-11"}
+      redaction_version: {sources: [system], transform: "Version of the redaction pipeline"}
+      _loaded_at: {sources: [system], transform: "Publish time of the nightly build"}

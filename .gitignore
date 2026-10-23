@@ -218,3 +218,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Generated synthetic data (python scripts/generate_synthetic.py)
+synthetic/data/

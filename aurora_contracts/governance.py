@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+import numpy as np
 import pandas as pd
 
 from .models import (
@@ -46,7 +47,8 @@ _DTYPE_CHECKS = {
     DataType.TIMESTAMP: pd.api.types.is_datetime64_any_dtype,
     DataType.DATE: lambda s: pd.api.types.is_datetime64_any_dtype(s) or s.map(lambda v: hasattr(v, "year")).all(),
     DataType.JSON: lambda s: True,
-    DataType.ARRAY_STRING: lambda s: s.map(lambda v: isinstance(v, (list, tuple))).all(),
+    # Parquet round-trips arrays as numpy arrays.
+    DataType.ARRAY_STRING: lambda s: s.map(lambda v: isinstance(v, (list, tuple, np.ndarray))).all(),
 }
 
 
